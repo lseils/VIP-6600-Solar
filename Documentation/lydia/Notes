@@ -1,0 +1,10 @@
+
+----------------------------------------------------------------
+Branch for everyone
+
+git checkout main
+git pull
+git checkout -b feature/my-thing
+# do work, commit as you go
+git push -u origin feature/my-thing
+----------------------------------------------------------------
