@@ -1,0 +1,45 @@
+
+# ── Python ──────────────────────────────
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+build/
+
+# ── Environments ────────────────────────
+venv/
+.venv/
+.env
+.env.*
+
+# ── Editor / IDE ────────────────────────
+.vscode/
+.idea/
+.ipynb_checkpoints/
+
+# ── OS ───────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Downloaded installers (shouldn't be committed) ──
+Miniconda3-latest-Linux-x86_64.sh
+
+# ── Logs ─────────────────────────────────
+*.log
+
+# ── Personal notes ──────────────────────
+Documentation/lydia/Notes
+
+# ── Gather_Balcony: generated/large outputs ──
+Gather_Balcony/street_images/
+Gather_Balcony/3d_outputs/
+Gather_Balcony/perspective_crops/
+Gather_Balcony/combined_detections/
+Gather_Balcony/depth_meshes/
+
+# COLMAP workspace — ignore large intermediate files, but keep final outputs
+Gather_Balcony/colmap_workspace/*.db
+Gather_Balcony/colmap_workspace/dense/
+Gather_Balcony/colmap_workspace/sparse/
+Gather_Balcony/colmap_workspace/mesh/
+

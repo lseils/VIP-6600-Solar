@@ -8,3 +8,9 @@ git checkout -b feature/my-thing
 # do work, commit as you go
 git push -u origin feature/my-thing
 ----------------------------------------------------------------
+
+
+Make a more concise tutorial on how all this works including
+    - How to set up branches and anything git
+    - How to set up on Computing Cluster
+    - How to run to create 3D output

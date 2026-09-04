@@ -1,9 +1,0 @@
-python panda/run_image.py \
-  --config panda/config/inference/panda_large.yaml \
-  --img-path street_images/ \
-  --outdir panda_depth/ \
-  --pred-only \
-  --grayscale \
-  --save-cloud
-
-  python panda_crop_to_mesh.py --pano street_images/pano_004.jpg

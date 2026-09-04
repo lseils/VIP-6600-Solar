@@ -21,7 +21,7 @@ git submodule update --init --recursive
 This repo uses multiple branches:
 
 ```
-main  ← stable, always working. Requires approval from Lydia to merge.
+main  ← stable, always working. Requires approval from Lydia or Patrick to merge.
  └── dev  ← shared integration/testing branch for the team
       ├── lydia/wip
       ├── "teammate"/wip
@@ -29,7 +29,7 @@ main  ← stable, always working. Requires approval from Lydia to merge.
       └── etc..
 ```
 
-- **`main`** — always stable and working. Only updated periodically from `dev`, once things have been tested together. Protected — only Lydia can approve a merge into `main`.
+- **`main`** — always stable and working. Only updated periodically from `dev`, once things have been tested together. Protected — only Lydia or Patrick can approve a merge into `main`.
 - **`dev`** — the shared branch everyone works against. This is where your feature branches get merged first, so we can catch conflicts and integration issues before they ever touch `main`.
 - **Feature branches** — where you actually do your work day-to-day.
 
