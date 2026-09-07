@@ -1,0 +1,41 @@
+==============================================================
+activate your virtual enviornment!
+
+source venv/bin/activate
+==============================================================
+Clean!
+
+rm -rf street_images colmap_workspace perspective_crops
+==============================================================
+Get tiles!
+
+python fetch_streetview_tiles.py
+==============================================================
+Crop panos!
+
+python crop_perspective.py
+==============================================================
+Get off of the virtual enviornment!
+
+deactivate
+==============================================================
+Run Colmap!
+
+./run_colmap.sh
+==============================================================
+Post process!
+
+python open3d_postprocess.py
+==============================================================
+Check Colmap output!
+
+apptainer exec --nv /usr/local/pace-apps/manual/packages/singularity_images/colmap-3.10.sif colmap model_analyzer --path colmap_workspace/sparse/0/
+==============================================================
+Run detection model!
+
+python yolo_balcony/detect.py --weights path/to/best.pt --source perspective_crops/
+==============================================================
+
+python depth_to_mesh.py perspective_crops/pano_004_center.jpg --depth_scale 500 --discontinuity 0.015
+python depth_to_mesh.py perspective_crops/pano_004_center.jpg --depth_scale 800 --discontinuity 0.015
+==============================================================

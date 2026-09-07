@@ -8,9 +8,16 @@ git checkout -b feature/my-thing
 # do work, commit as you go
 git push -u origin feature/my-thing
 ----------------------------------------------------------------
+.env ->
+    GOOGLE_MAPS_API_KEY='your_api_key_here'
+
+----------------------------------------------------------------
+Charge account: gts-pkastner3
 
 
 Make a more concise tutorial on how all this works including
     - How to set up branches and anything git
     - How to set up on Computing Cluster
     - How to run to create 3D output
+
+Then Setup for model training with teammates

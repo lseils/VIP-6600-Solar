@@ -79,3 +79,46 @@ git pull origin dev
 ## Questions
 
 If git gets into a confusing state (merge conflicts, detached HEAD, etc.), stop and ask before trying to force your way out of it — it's much easier to fix early than after more commands are run on top of it.
+
+
+## Setting up Gather_Balcony for own work
+
+## How to use Computing Cluster
+
+
+## Requirements
+
+- **Python**: 3.9.21
+- **Cluster modules**:
+```bash
+  module load colmap/3.10
+```
+  (COLMAP runs via Apptainer container with CUDA support — no manual install needed. Run on a GPU-allocated node for CUDA-dependent steps.)
+
+  **Cluster Settings**
+  VS Code version: 1.99.2
+  Enviornment setup Default Modules
+  Quality of service: Inferno
+  NVIDIA GPU V100 16GB
+  Number of cores: 4
+  Number of GPU's: 1
+  Memory: 16
+
+
+## Setup
+
+1. Clone the repo and cd into it
+2. Load required modules:
+```bash
+   module load colmap/3.10
+```
+3. Create and activate a virtual environment:
+```bash
+   python -m venv venv
+   source venv/bin/activate
+```
+4. Install Python dependencies:
+```bash
+   pip install -r requirements.txt
+```
+
