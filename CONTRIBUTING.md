@@ -167,3 +167,12 @@ If git gets into a confusing state (merge conflicts, detached HEAD, etc.), stop 
 - **Landed back on `(base)` after reconnecting?** Compute node allocations can end/rotate (new node hostname each time). You'll need to `conda activate vip6600` again each new session — it doesn't stay active across a fresh SSH connection.
 - **"Disk quota exceeded" errors** mean something is installing to home instead of scratch — check `conda info --base` and `df -h ~` / `quota -s`.
 - **requirements.txt conflicts:** if you ever need to regenerate this file, don't hand-edit strict `==` pins from a `pip freeze` created on a different machine/Python version — this caused a long chain of resolver conflicts (numpy vs scipy vs matplotlib vs torch/xformers) when the file was first set up. Prefer freezing directly from a cluster environment that's confirmed working.
+
+
+## Google API to run fetch_streetview_tiles.py
+
+**In order to be able to import google street view tiles, a google api key needs to be set up*
+1. Create .env file in your repo (this file should be ignored when you push to git, will only be a local file for your eyes)
+2. In .env:
+   GOOGLE_MAPS_API_KEY='your_api_key_here'
+3. In Google APIs and Services, under credentials you should find your API key if you have set up your API properly, copy and paste into 'your_api_key_here'
