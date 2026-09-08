@@ -81,44 +81,89 @@ git pull origin dev
 If git gets into a confusing state (merge conflicts, detached HEAD, etc.), stop and ask before trying to force your way out of it — it's much easier to fix early than after more commands are run on top of it.
 
 
-## Setting up Gather_Balcony for own work
-
-## How to use Computing Cluster
-
+# Setting up Gather_Balcony for own work - Using Computing Cluster
 
 ## Requirements
 
-- **Python**: 3.9.21
+- **Python**: 3.11 (via conda — see note below on why not plain `venv`)
 - **Cluster modules**:
-```bash
+  ```bash
   module load colmap/3.10
-```
+  ```
   (COLMAP runs via Apptainer container with CUDA support — no manual install needed. Run on a GPU-allocated node for CUDA-dependent steps.)
 
-  **Cluster Settings**
-  VS Code version: 1.99.2
-  Enviornment setup Default Modules
-  Quality of service: Inferno
-  NVIDIA GPU V100 16GB
-  Number of cores: 4
-  Number of GPU's: 1
-  Memory: 16
+- **Cluster Settings**
+  - VS Code version: 1.99.2
+  - Environment setup: Default Modules
+  - Quality of service: Inferno
+  - NVIDIA GPU: V100 16GB
+  - Number of cores: 4
+  - Number of GPUs: 1
+  - Memory: 16GB
 
+⚠️ **Important — use scratch storage, not home.** Home directories on this cluster have a hard **20GB quota**. This project's dependencies (PyTorch, CUDA libraries, etc.) alone take up 10GB+, and the quota fills fast once you add the repo, caches, and other packages. Clone the repo and build the environment under your scratch path (e.g. `/storage/scratch1/<group>/<username>/`), **not** your home directory.
 
 ## Setup
 
-1. Clone the repo and cd into it
-2. Load required modules:
-```bash
-   module load colmap/3.10
-```
-3. Create and activate a virtual environment:
-```bash
-   python -m venv venv
-   source venv/bin/activate
-```
-4. Install Python dependencies:
-```bash
-   pip install -r requirements.txt
-```
+1. **Clone the repo directly onto scratch, and `cd` into it:**
+   ```bash
+   cd /storage/scratch1/<group>/<your_username>
+   git clone <repo_url>
+   cd VIP-6600-Solar
+   ```
 
+2. **Load required modules:**
+   ```bash
+   module load colmap/3.10
+   ```
+
+3. **Install miniconda on scratch (skip if you already have conda pointed at scratch).**
+   If your `conda info --base` shows a path under `/storage/home/...`, redirect it — home-based conda installs will hit the quota wall:
+   ```bash
+   cd /storage/scratch1/<group>/<your_username>
+   wget https://repo.anaconda.com/miniconda/Miniconda3-latest-Linux-x86_64.sh
+   bash Miniconda3-latest-Linux-x86_64.sh -b -p /storage/scratch1/<group>/<your_username>/miniconda3
+   /storage/scratch1/<group>/<your_username>/miniconda3/bin/conda init bash
+   source ~/.bashrc
+   ```
+   Also point pip's cache to scratch so it doesn't quietly refill your home quota over time:
+   ```bash
+   echo 'export PIP_CACHE_DIR=/storage/scratch1/<group>/<your_username>/pip_cache' >> ~/.bashrc
+   source ~/.bashrc
+   ```
+
+4. **Create and activate the conda environment (Python 3.11):**
+   ```bash
+   conda create -n vip6600 python=3.11 -c conda-forge -y
+   conda activate vip6600
+   conda install pip -c conda-forge -y
+   ```
+
+5. **Install Python dependencies:**
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+6. **Verify GPU support.** PyTorch's default build may target a newer CUDA version than this node's driver supports:
+   ```bash
+   python -c "import torch; print(torch.__version__); print(torch.cuda.is_available())"
+   ```
+   - If this prints `True`, you're done.
+   - If it prints `False` with a *"CUDA initialization: driver too old"* warning, reinstall torch against CUDA 12.6, which is compatible with the V100 nodes on this cluster:
+     ```bash
+     pip uninstall torch torchvision -y
+     pip install torch==2.10.0 torchvision --index-url https://download.pytorch.org/whl/cu126
+     ```
+     Re-run the check above to confirm `True` before proceeding.
+
+7. **Confirm the environment is consistent:**
+   ```bash
+   pip check
+   ```
+   Should report "No broken requirements found."
+
+## Notes for troubleshooting
+
+- **Landed back on `(base)` after reconnecting?** Compute node allocations can end/rotate (new node hostname each time). You'll need to `conda activate vip6600` again each new session — it doesn't stay active across a fresh SSH connection.
+- **"Disk quota exceeded" errors** mean something is installing to home instead of scratch — check `conda info --base` and `df -h ~` / `quota -s`.
+- **requirements.txt conflicts:** if you ever need to regenerate this file, don't hand-edit strict `==` pins from a `pip freeze` created on a different machine/Python version — this caused a long chain of resolver conflicts (numpy vs scipy vs matplotlib vs torch/xformers) when the file was first set up. Prefer freezing directly from a cluster environment that's confirmed working.

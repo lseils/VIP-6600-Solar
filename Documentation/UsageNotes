@@ -2,6 +2,10 @@
 activate your virtual enviornment!
 
 source venv/bin/activate
+
+conda activate vip6600
+conda deactivate
+
 ==============================================================
 Clean!
 
