@@ -1,9 +1,9 @@
 ---
 name: Weekly Team Update
-description: Template for submitting structured weekly team updates and meeting recaps.
+about: Template for submitting structured weekly team updates and meeting recaps.
 title: "Weekly Update: [Week Number] - [Date Range]"
-labels: ["weekly-update"]
-assignees: ""
+labels: weekly-update
+assignees: ''
 ---
 
 **Weekly Week #:** [e.g., Week 8]
