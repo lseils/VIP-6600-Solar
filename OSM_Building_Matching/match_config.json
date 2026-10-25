@@ -1,0 +1,16 @@
+{
+  "input": {
+    "metadata_file": "../Gather_Balcony/panorama_metadata.json"
+  },
+  "osm": {
+    "overpass_url": "https://overpass-api.de/api/interpreter",
+    "search_radius_meters": 100,
+    "top_candidates": 5,
+    "request_pause_seconds": 1.0
+  },
+  "output": {
+    "directory": "runs",
+    "run_name": "panorama_buildings_01",
+    "matches_file": "building_matches.json"
+  }
+}

@@ -116,6 +116,23 @@ if __name__ == "__main__":
     )
 ```
 
+### Run Grounding DINO and SAM segmentation
+
+The experimental Grounding DINO pipeline uses each DINO balcony box as a box
+prompt for SAM. Prepare the COCO annotations first, then run from the
+repository root:
+
+```bash
+python Grounding_DINO/prepare_dataset.py
+python Grounding_DINO/run_demo.py
+```
+
+The SAM model is configured in
+`Grounding_DINO/grounding_dino_config.json`. The first run downloads the DINO
+and SAM checkpoints from Hugging Face. Results are written to
+`Grounding_DINO/demo_outputs`, including binary masks in `masks/`, comparison
+panels in `visualizations/`, and matched detection/mask IoU in `metrics.json`.
+
 ### Reconstruct geometry with RANSAC
 
 1. Open the generated mesh in Rhinoceros 3D.

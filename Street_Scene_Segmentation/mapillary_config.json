@@ -1,0 +1,20 @@
+{
+  "model": {
+    "model_id": "facebook/mask2former-swin-large-mapillary-vistas-semantic"
+  },
+  "data": {
+    "source_dir": "../Training Data/Labeled Balconies",
+    "image_count": 10,
+    "random_seed": 6600
+  },
+  "outputs": {
+    "root_dir": "runs",
+    "run_name": "mapillary_demo_10"
+  },
+  "classes": [
+    {"name": "car", "mask_value": 1, "color": [220, 40, 40]},
+    {"name": "road", "mask_value": 2, "color": [40, 110, 220]},
+    {"name": "sidewalk", "mask_value": 3, "color": [230, 170, 40]},
+    {"name": "sky", "mask_value": 4, "color": [50, 190, 210]}
+  ]
+}

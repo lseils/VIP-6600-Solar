@@ -1,0 +1,28 @@
+{
+  "data": {
+    "source_dir": "../Training Data/Labeled Balconies",
+    "output_dir": "prepared",
+    "validation_fraction": 0.2,
+    "random_seed": 6600
+  },
+  "runs": {
+    "output_dir": "runs",
+    "default_run_name": "demo_10"
+  },
+  "grounding_dino": {
+    "model_id": "IDEA-Research/grounding-dino-tiny",
+    "text_prompt": "balcony.",
+    "box_threshold": 0.20,
+    "text_threshold": 0.15,
+    "iou_threshold": 0.5,
+    "demo_image_count": 10,
+    "inference_seed": 6600,
+    "model_config": "",
+    "checkpoint": ""
+  },
+  "sam": {
+    "model_id": "facebook/sam-vit-base",
+    "mask_iou_threshold": 0.5,
+    "multimask_output": false
+  }
+}

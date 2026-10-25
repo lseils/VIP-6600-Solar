@@ -54,6 +54,8 @@ def get_session_token(api_key: str) -> str:
     url = "https://tile.googleapis.com/v1/createSession"
     payload = {"mapType": "streetview", "language": "en-US", "region": "US"}
     r = requests.post(f"{url}?key={api_key}", json=payload)
+    if not r.ok:
+        print(r.status_code, r.text)
     r.raise_for_status()
     token = r.json()["session"]
     print(f"[OK] Session token obtained")
