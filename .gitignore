@@ -47,6 +47,7 @@ Gather_Balcony/colmap_workspace/mesh/
 /Training Data
 /Grounding_DINO/runs
 /Grounding_DINO/visualizations
+Grounding_DINO/prepared/
 /Mapillary_Atlanta
 /Street_Scene_Segmentation/runs
 /street_images
