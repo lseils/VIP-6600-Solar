@@ -10,6 +10,7 @@ from typing import Any
 
 import numpy as np
 import torch
+from scipy import ndimage
 from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont, ImageOps
 from transformers import SamModel, SamProcessor
 
@@ -21,6 +22,12 @@ GROUND_TRUTH = (255, 220, 40, 255)
 DINO_INPUT = (30, 190, 220, 255)
 SAM_OUTPUT = (255, 180, 40, 255)
 FILL_ALPHA = 75
+CLASS_COLORS = {
+    "tree": (40, 210, 70, 255),
+    "building facade": (255, 145, 30, 255),
+    "ground": (170, 105, 45, 255),
+    "sky": (40, 150, 255, 255),
+}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -37,6 +44,114 @@ def mask_iou(first: np.ndarray, second: np.ndarray) -> float:
     intersection = np.logical_and(first, second).sum()
     union = np.logical_or(first, second).sum()
     return float(intersection / union) if union else 0.0
+
+
+def _box_iou(first: list[float], second: list[float]) -> float:
+    first_x, first_y, first_width, first_height = first
+    second_x, second_y, second_width, second_height = second
+    overlap_width = max(
+        0.0,
+        min(first_x + first_width, second_x + second_width)
+        - max(first_x, second_x),
+    )
+    overlap_height = max(
+        0.0,
+        min(first_y + first_height, second_y + second_height)
+        - max(first_y, second_y),
+    )
+    intersection = overlap_width * overlap_height
+    union = first_width * first_height + second_width * second_height - intersection
+    return intersection / union if union else 0.0
+
+
+def _remove_tree_facade_conflicts(
+    predictions: list[dict[str, Any]],
+    iou_threshold: float,
+    score_ratio: float,
+) -> list[dict[str, Any]]:
+    facades = [
+        prediction for prediction in predictions
+        if str(prediction.get("label", "")).lower() == "building facade"
+    ]
+    filtered = []
+    for prediction in predictions:
+        if str(prediction.get("label", "")).lower() != "tree":
+            filtered.append(prediction)
+            continue
+        should_suppress = any(
+            _box_iou(prediction["bbox"], facade["bbox"]) >= iou_threshold
+            and float(facade["score"]) >= score_ratio * float(prediction["score"])
+            for facade in facades
+        )
+        if not should_suppress:
+            filtered.append(prediction)
+    return filtered
+
+
+def _mask_bbox(mask: np.ndarray) -> list[float]:
+    rows, columns = np.nonzero(mask)
+    xmin, xmax = columns.min(), columns.max()
+    ymin, ymax = rows.min(), rows.max()
+    return [
+        float(xmin),
+        float(ymin),
+        float(xmax - xmin + 1),
+        float(ymax - ymin + 1),
+    ]
+
+
+def _clean_and_merge_masks(
+    predictions: list[dict[str, Any]],
+    masks: list[np.ndarray],
+    image_size: tuple[int, int],
+    merge_classes: set[str],
+    closing_radius: int,
+    minimum_component_fraction: float,
+) -> tuple[list[dict[str, Any]], list[np.ndarray]]:
+    width, height = image_size
+    grouped: dict[str, list[int]] = {}
+    for index, prediction in enumerate(predictions):
+        label = str(prediction.get("label", "object")).lower()
+        if label in merge_classes:
+            grouped.setdefault(label, []).append(index)
+
+    merged_indices = {
+        index for indices in grouped.values() for index in indices
+    }
+    output_predictions = [
+        prediction for index, prediction in enumerate(predictions)
+        if index not in merged_indices
+    ]
+    output_masks = [
+        mask for index, mask in enumerate(masks) if index not in merged_indices
+    ]
+    structure_size = max(3, closing_radius * 2 + 1)
+    structure = np.ones((structure_size, structure_size), dtype=bool)
+    minimum_component_size = max(
+        64,
+        round(width * height * minimum_component_fraction),
+    )
+    for label, indices in grouped.items():
+        combined = np.logical_or.reduce([masks[index] for index in indices])
+        combined = ndimage.binary_closing(combined, structure=structure)
+        combined = ndimage.binary_fill_holes(combined)
+        components, component_count = ndimage.label(combined)
+        if component_count:
+            component_sizes = np.bincount(components.ravel())
+            keep = component_sizes >= minimum_component_size
+            keep[0] = False
+            combined = keep[components]
+        if not combined.any():
+            continue
+        representative = max(
+            (predictions[index] for index in indices),
+            key=lambda prediction: float(prediction["score"]),
+        ).copy()
+        representative["label"] = label
+        representative["bbox"] = _mask_bbox(combined)
+        output_predictions.append(representative)
+        output_masks.append(combined)
+    return output_predictions, output_masks
 
 
 def match_masks(
@@ -122,6 +237,7 @@ def draw_mask_panel(
     image: Image.Image,
     masks: list[np.ndarray],
     colors: list[tuple[int, int, int, int]],
+    labels: list[str],
     title: str,
 ) -> Image.Image:
     panel = image.copy().convert("RGBA")
@@ -129,7 +245,11 @@ def draw_mask_panel(
         draw_mask(panel, mask, color)
     draw = ImageDraw.Draw(panel)
     font = load_font()
-    draw_legend(draw, font)
+    x = 30
+    for label, color in CLASS_COLORS.items():
+        draw.rectangle((x, 37, x + 25, 62), fill=color)
+        draw.text((x + 35, 30), label, fill=(255, 255, 255, 255), font=font)
+        x += 260
     draw_title(draw, title, font)
     return panel
 
@@ -143,9 +263,16 @@ def draw_dino_input_panel(
     draw = ImageDraw.Draw(panel)
     font = load_font()
     for prediction in predictions:
+        label = str(prediction.get("label", "object"))
+        color = CLASS_COLORS.get(label.lower(), DINO_INPUT)
         xmin, ymin, width, height = prediction["bbox"]
-        draw.rectangle((xmin, ymin, xmin + width, ymin + height), outline=DINO_INPUT, width=8)
-        draw.text((xmin, ymin), f"{prediction['score']:.2f}", fill=DINO_INPUT, font=font)
+        draw.rectangle((xmin, ymin, xmin + width, ymin + height), outline=color, width=8)
+        draw.text((xmin, ymin), f"{label} {prediction['score']:.2f}", fill=color, font=font)
+    x = 30
+    for label, color in CLASS_COLORS.items():
+        draw.rectangle((x, 37, x + 25, 62), fill=color)
+        draw.text((x + 35, 30), label, fill=(255, 255, 255, 255), font=font)
+        x += 260
     draw_title(draw, title, font)
     return panel
 
@@ -212,6 +339,14 @@ def run_sam(
     return [mask.numpy().astype(bool) for mask in masks]
 
 
+def load_model(model_id: str, device: torch.device) -> tuple[Any, Any]:
+    """Load the configured SAM processor and model."""
+    processor = SamProcessor.from_pretrained(model_id)
+    model = SamModel.from_pretrained(model_id).to(device)
+    model.eval()
+    return model, processor
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
@@ -241,30 +376,35 @@ def main() -> int:
     if args.predictions is None:
         predictions_path = config_path.parent / runs_config["output_dir"] / run_name / "dino" / "predictions.json"
     predictions_data = load_json(predictions_path.resolve())
-    annotations_data = load_json((config_path.parent / data_config["output_dir"] / "all.json").resolve())
     source_dir = (config_path.parent / data_config["source_dir"]).resolve()
-
-    annotations_by_image = {}
-    for annotation in annotations_data["annotations"]:
-        annotations_by_image.setdefault(annotation["image_id"], []).append(annotation)
-    image_by_name = {image["file_name"]: image for image in annotations_data["images"]}
+    if data_config.get("inference_only", False):
+        annotations_by_image = {}
+    else:
+        annotations_data = load_json(
+            (config_path.parent / data_config["output_dir"] / "all.json").resolve()
+        )
+        annotations_by_image = {}
+        for annotation in annotations_data["annotations"]:
+            annotations_by_image.setdefault(annotation["image_id"], []).append(annotation)
+        image_by_name = {image["file_name"]: image for image in annotations_data["images"]}
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading {sam_config['model_id']} on {device}...")
-    processor = SamProcessor.from_pretrained(sam_config["model_id"])
-    model = SamModel.from_pretrained(sam_config["model_id"]).to(device)
-    model.eval()
+    model, processor = load_model(sam_config["model_id"], device)
 
     metrics = []
     all_mask_ious = []
     mask_iou_threshold = float(sam_config["mask_iou_threshold"])
     for sample_index, item in enumerate(predictions_data, start=1):
         image_name = item["image"]
-        image_record = image_by_name[image_name]
         image = Image.open(source_dir / image_name).convert("RGB")
-        ground_truth = annotations_by_image[image_record["id"]]
+        ground_truth = [] if data_config.get("inference_only", False) else annotations_by_image[image_by_name[image_name]["id"]]
         ground_truth_masks = [annotation_mask(annotation, image.width, image.height) for annotation in ground_truth]
-        predictions = item["predictions"]
+        predictions = _remove_tree_facade_conflicts(
+            item["predictions"],
+            float(sam_config["mask_cleanup"]["tree_facade_iou_threshold"]),
+            float(sam_config["mask_cleanup"]["tree_facade_score_ratio"]),
+        )
         predicted_masks = run_sam(
             model,
             processor,
@@ -273,8 +413,21 @@ def main() -> int:
             device,
             bool(sam_config["multimask_output"]),
         )
-        matches, misses, false_predictions = match_masks(
-            ground_truth_masks, predicted_masks, mask_iou_threshold
+        predictions, predicted_masks = _clean_and_merge_masks(
+            predictions,
+            predicted_masks,
+            (image.width, image.height),
+            {
+                str(label).lower()
+                for label in sam_config["mask_cleanup"]["merge_classes"]
+            },
+            int(sam_config["mask_cleanup"]["closing_radius_px"]),
+            float(sam_config["mask_cleanup"]["minimum_component_fraction"]),
+        )
+        matches, misses, false_predictions = (
+            match_masks(ground_truth_masks, predicted_masks, mask_iou_threshold)
+            if ground_truth_masks
+            else ([], set(), set(range(len(predicted_masks))))
         )
         matched_ious = [score for _, _, score in matches]
         all_mask_ious.extend(matched_ious)
@@ -302,9 +455,15 @@ def main() -> int:
         gt_colors = [HIT if index in matched_ground_truth else MISS for index in range(len(ground_truth_masks))]
         prediction_colors = [HIT if index in matched_predictions else FALSE_POSITIVE for index in range(len(predicted_masks))]
         panels = [
-            draw_mask_panel(image, ground_truth_masks, [GROUND_TRUTH] * len(ground_truth_masks), "SAM GROUND TRUTH"),
+            draw_mask_panel(image, ground_truth_masks, [GROUND_TRUTH] * len(ground_truth_masks), [], "SAM GROUND TRUTH"),
             draw_dino_input_panel(image, predictions, "DINO BOXES SENT TO SAM"),
-            draw_mask_panel(image, predicted_masks, [SAM_OUTPUT] * len(predicted_masks), "SAM MASKS"),
+            draw_mask_panel(
+                image,
+                predicted_masks,
+                [CLASS_COLORS.get(str(prediction.get("label", "")).lower(), SAM_OUTPUT) for prediction in predictions],
+                [str(prediction.get("label", "object")) for prediction in predictions],
+                "SAM MASKS",
+            ),
             draw_difference_panel(image, ground_truth_masks, predicted_masks, matches, misses, false_predictions),
         ]
         safe_name = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(image_name).stem)

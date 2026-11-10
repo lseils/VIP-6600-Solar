@@ -83,6 +83,306 @@ python crop_perspective.py
 python open3d_postprocess.py
 ```
 
+`crop_perspective.py` reads panoramas from `Gather_Balcony/street_images/`
+when its metadata file is present; otherwise, it falls back to the repository
+root's `street_images/`. It always writes crops to
+`Gather_Balcony/perspective_crops/`, where the neighborhood scene builder
+expects them.
+
+### Download USGS 3DEP bare-earth elevation
+
+After generating `crop_manifest.json`, request the 3DEP bare-earth DEM around
+the camera location for the same default 300 m radius used by the building
+visualization:
+
+```bash
+python fetch_lidar_elevation.py --crop pano_000_center.jpg
+```
+
+The script saves a clipped GeoTIFF and a JSON metadata sidecar in
+`Gather_Balcony/lidar_elevation/`. Use `--radius` to change the radius,
+`--resolution` to change the requested output pixel size, and `--output-dir` to
+choose another location. The GeoTIFF can be inspected in QGIS or another GIS
+tool. Its metadata sidecar records the actual returned extent, CRS, dimensions,
+pixel size, source service, and retrieval time.
+
+This is the USGS 3DEP **bare-earth DEM**, appropriate for terrain elevation;
+it intentionally does not include building roofs or tree canopy. The service
+returns a square bounding raster centered on the crop. The service is
+multi-resolution: requesting 1 m output pixels does not guarantee 1 m native
+source data at every location. Acquisition dates and vertical datums can vary
+among source DEMs, so review the sidecar's source notes and local product
+metadata before using elevations as survey-grade measurements. The output is
+a separate input layer and does not change the building visualization yet.
+
+### Build a combined neighborhood scene
+
+The scene orchestrator runs the USGS 3DEP elevation step, fetches Overture
+building features, samples bare-earth ground elevation beneath each footprint,
+and creates both an interactive verification view and an OBJ mesh importable in
+Rhino:
+
+```bash
+python -m pip install rasterio==1.5.2 laspy==2.6.1 lazrs==0.7.0 "shapely>=2.0"
+python build_neighborhood_scene.py --crop pano_000_center.jpg
+```
+
+The scene builder defaults to a 500 m radius around the crop; override it with
+`--radius` when needed.
+
+By default, outputs are saved under
+`Gather_Balcony/neighborhood_scenes/`: a terrain GeoTIFF and metadata sidecar,
+an interactive HTML scene, a combined OBJ, and scene metadata JSON. The OBJ
+uses local east/north metres centered on the selected crop; vertical values
+are metres relative to bare-earth elevation at that origin. The terrain is
+downsampled for a manageable mesh, and terrain triangles may be further
+decimated in the HTML view only. Buildings are extruded from sampled ground
+elevation. Overture heights or labeled estimates are retained unless nearby
+class-6 USGS LiDAR points support a 3D DBSCAN cluster. Point clusters are
+assigned to the nearest footprint within 8 m. The per-building DBSCAN epsilon
+is twice the mean distance to the three nearest horizontal neighbors; DBSCAN
+then uses east, north, and elevation so distinct roof levels can remain
+separate. LiDAR outlines use a simplified concave hull, and roof height is the
+95th-percentile aligned inlier elevation rather than the highest return.
+Overlapping roof regions at similar heights are merged; higher regions take
+precedence where they overlap, while uncovered Overture footprint areas keep
+their original height. Roof caps use constrained triangulation where
+available. Clusters need at least 20 points. This creates closed stepped
+height regions, not sloped roof surfaces. The Overture
+footprint lineage may include OpenStreetMap; this orchestrator does not query
+OSM directly. Buildings are selected when their full footprint intersects the
+requested radius and are rendered with the complete footprint, even where it
+extends beyond the terrain mesh. LiDAR tile discovery includes the terrain
+area and a buffered bounding area around all selected buildings; raw class-6
+returns from that area can therefore support height regions across the full
+building. The terrain, canopy surface, and class-separated point exports
+remain clipped to the downloaded DEM area.
+
+Class-6 returns are also checked for buildings missing from the footprint
+dataset. Candidate roof clusters must be inside the scene boundary,
+have a median height of at least 3 m above the DEM, include at least 20
+clustered points, and cover at least 8 m². Points already assigned to a mapped
+footprint within 8 m are excluded from unmatched-cluster construction to avoid
+duplicate shells. Remaining clusters are built into the same building layer
+as Overture footprints using the same concave-outline and robust roof-height
+rules.
+
+### View Google Photorealistic 3D Tiles
+
+Google's Map Tiles API can stream its photorealistic 3D tiles into a local
+CesiumJS viewer centered on a generated neighborhood scene. This is a
+visualization only: the viewer does not download, save, or export Google's
+tile data or derive geometry from it.
+It uses a plain background instead of the Cesium globe, limits zoom-out, and
+recenters after a pan if the view center leaves the scene boundary. Tiles may
+appear outside the boundary near the camera-frustum edges, and may briefly
+appear beyond it while dragging. Google still serves tiles through its global
+streaming endpoint; the viewer limits navigation, it does not clip the data or
+create a downloadable regional dataset.
+
+Enable the **Map Tiles API** and billing for your Google Cloud project. The
+browser-facing API key must be permitted for Map Tiles API and restricted to
+the local viewer referrer (for example `http://127.0.0.1:8765/*`). Store the
+key as `GOOGLE_MAPS_API_KEY` in the repository `.env` file; the script serves
+the key to the local browser at runtime and does not write it into a file.
+
+From the repository root, run:
+
+```bash
+python Gather_Balcony/view_google_3d_tiles.py \
+  --scene-json Gather_Balcony/neighborhood_scenes/pano_000_center_neighborhood_scene.json
+```
+
+The script opens a viewer at `http://127.0.0.1:8765/`; press Ctrl+C in the
+terminal to stop it. It reads the scene origin and boundary from the JSON.
+Specify `--scene-json` for another crop, `--radius` to override the recorded
+scene radius in metres, or `--port` to use another localhost port. Google
+requires attribution to remain visible in the viewer; Cesium displays the
+tile-provided credits on screen. Map Tiles API use requires billing and is
+subject to Google's current pricing and terms. See the [API guide](https://developers.google.com/maps/documentation/tile/3d-tiles),
+[policies](https://developers.google.com/maps/documentation/tile/policies),
+and [pricing](https://developers.google.com/maps/billing-and-pricing/pricing#maps-3d-tiles-pricing).
+
+### Compare Overture and LiDAR buildings with Google tiles
+
+The comparison viewer overlays the local Overture footprints and detected
+class-6 LiDAR roof footprints on Google's streamed 3D tiles. It computes
+intersection-over-union, Overture-only/LiDAR-only footprint areas, and
+Overture-versus-LiDAR height differences from those local datasets. It writes
+a CSV review report beside the scene JSON. Google tiles are visual context
+only; the script does not read their geometry or use it to calculate
+disagreements.
+
+The scene must contain the local comparison geometries. Rebuild an older scene
+once with the current builder, then start the viewer from the repository root:
+
+```bash
+python Gather_Balcony/build_neighborhood_scene.py --crop pano_000_center.jpg
+python Gather_Balcony/compare_google_buildings.py
+```
+
+By default, the viewer uses `http://127.0.0.1:8765/` and writes
+`pano_000_center_neighborhood_scene_building_comparison.csv` beside the scene
+JSON. Use `--scene-json`, `--report`, or `--port` to select other paths or a
+port. LiDAR roof returns may cover only part of a building, so low overlap or
+an Overture-only area is a review signal, not proof that the Overture footprint
+is wrong. LiDAR-only candidates also require visual verification.
+
+### Grounding DINO + SAM balcony overlays
+
+The neighborhood scene builder can reuse the existing Grounding DINO and SAM
+inference helpers in `Grounding_DINO/run_demo.py` and
+`Grounding_DINO/run_sam.py`:
+
+```bash
+python Gather_Balcony/build_neighborhood_scene.py \
+  --crop pano_000_center.jpg \
+  --segment-balconies
+```
+
+The default `Grounding_DINO/grounding_dino_config.json` supplies the model
+IDs, text prompt, and detection thresholds. The selected perspective crop must
+already exist at `Gather_Balcony/perspective_crops/<crop-name>`; use
+`--segmentation-image` to provide another path, or
+`--grounding-dino-config` to select a different prompt/configuration. The
+option is off by default so normal scene builds do not download or load the
+models. PyTorch and Transformers must be installed in the active environment;
+the model weights are downloaded on first use. A compatible CUDA-enabled
+PyTorch install is needed for GPU inference.
+
+SAM masks are projected through the crop's calibrated camera onto the nearest
+visible building-mesh surfaces. The HTML scene displays colored surface
+overlays, and the OBJ exports them as separately named mesh objects (without
+embedded materials), while a 2D mask preview is saved as
+`<crop-stem>_balcony_segmentation.png`. This is a visualization of image masks
+on the existing building geometry, not a reconstruction of balcony depth or
+structural geometry. If the scene mesh does not cover the detected image
+region, that mask will have no 3D overlay; inspect the saved 2D preview and
+the detection-level projection counts in the scene JSON.
+
+The scene builder also checks the USGS TNM Access catalog for **3DEP LiDAR
+point-cloud (LAZ) tiles** intersecting the expanded LiDAR search area. It selects the
+newest-dated project among the intersecting projects, downloads its matching
+tiles, and caches them under `neighborhood_scenes/point_cloud/`. Coverage
+percentage in the scene metadata is estimated from catalog tile bounds; it is
+not a guarantee that every location contains classified returns. The point
+cloud is distinct from the bare-earth DEM above.
+
+Vegetation meshes and the shade-focused point preview use LAS classes 3, 4,
+and 5 (low, medium, and high vegetation), but exclude returns below 2 m above
+the DEM by default so short grass and shrubs do not affect balcony shade.
+Override that threshold with `--minimum-shade-relevant-height`. Class 5 is a
+tree-candidate proxy, not a guarantee of individual tree species or crown-only
+returns. Points up to 60 m above the DEM are clustered with DBSCAN; its `eps` is twice the mean distance
+to the three nearest neighbors measured from streamed LAS chunks, and
+`min_samples` is 5. To limit memory for 0.5 km scenes, clustering is partitioned
+into 100 m spatial cells with a 25 m overlap; a deterministic reservoir sample
+keeps at most 5,000 points per class per cell, and at most 3,000 points per
+class are passed to each buffered DBSCAN fit. Clusters need at least 20 points.
+Each cluster is represented by a porous ellipsoidal crown sized from its
+5th-95th percentile LiDAR horizontal extents. The crown is a tapered layered
+profile; when the observed vertical return thickness is too small to describe
+a tree crown, its height is conservatively inferred from the horizontal crown
+diameter. Crown surface patches are sampled deterministically with
+class-specific foliage densities: 0.25 for low, 0.35 for medium, and 0.50 for
+high vegetation. The gaps are a geometric transmission approximation, not a
+calibrated leaf-area-index model. The disconnected class 3-5 crown meshes are
+grouped into separate vegetation-class render meshes.
+
+Use `--vegetation-point-preview` to make the sampled, shade-relevant class 3-5
+returns visible in the HTML viewer at once instead of requiring legend toggles.
+The preview remains sampled; the clipped class-separated LAZ files retain the
+full classified returns.
+
+Per-tile vertical offsets are estimated from class-2 ground returns against the
+DEM before clustering. The crown dimensions remain an approximation: a merged
+DBSCAN cluster can represent multiple trees, while a sparse cluster can
+underestimate the crown. Review the rendered crowns and point preview before
+using them for solar conclusions.
+
+No solar predictions or seasonal tree-removal behavior are applied in this
+Python geometry pipeline. The clustered meshes are geometry for visualization
+and export, not survey-grade tree crowns. Review project date, classification,
+point density, and coverage before using them for analysis.
+
+The scene builder also writes AOI-clipped, class-separated LAZ files beneath
+`neighborhood_scenes/lidar_points/`: `ground` (class 2), `low_vegetation`
+(class 3), `medium_vegetation` (class 4), `high_vegetation` (class 5),
+`building` (class 6), and `other` (all remaining classifications). Only points
+that map to valid pixels in the terrain raster are included. These files retain
+the source tile's coordinates, elevations, and LAS classification values; use
+the scene metadata JSON to find their paths and point counts. The HTML
+visualization displays up to 2,500 sampled points per class by default, with
+each class independently toggleable in the legend. Use
+`--max-lidar-visualization-points 0` to omit the HTML point traces while still
+writing the LAZ files. Raw points are not added to the Rhino OBJ; that export
+continues to contain the terrain, LiDAR-adjusted and LiDAR-detected building
+meshes, constructed class 3-5 vegetation meshes, and supplied mesh layers. Class-6
+returns are used to adjust the building geometry in Python; the raw points
+remain available in the separate `building` LAZ exports.
+
+The HTML view includes the estimated camera marker, crop field-of-view
+frustum, and a target tracker from `building_hits.json`. The target OSM
+reference is matched against Overture source metadata and the footprint is
+highlighted when a match is available; otherwise the tracker remains visible
+and reports that no Overture match was found. Use `--hits path/to/hits.json`
+to select another hit file and `--camera-height` to change the estimated
+camera height. The tracker is for visualization; it does not add camera or
+target geometry to the Rhino OBJ.
+
+The scene format includes `terrain`, `buildings`, `trees`, `balconies`, and
+`other` layers. Future segmented balcony meshes can be supplied with
+`--extra-meshes path/to/meshes.json`. That JSON is a list of mesh objects with
+a `name`, `layer`, `vertices`, and `faces`; vertices are `[east, north,
+elevation]` metre triples in the scene coordinate system, and faces are
+zero-based triangle indices. Balcony geometry must first be aligned to the
+scene origin and terrain-relative vertical datum. Tree meshes can use the same
+interface for additional tree data or balconies after transforming them into
+scene coordinates. No balcony data is fetched by the current pipeline.
+
+### Visualize a camera and nearby buildings
+
+From `Gather_Balcony`, after generating the crop manifest, identify the OSM
+building hit and create an interactive 3D view:
+
+```bash
+python locate_building.py
+python visualize_building_camera.py --crop pano_000_center.jpg
+```
+
+The HTML output is written to `3d_outputs/`. By default it uses Overture
+building features and heights only—no OSM API or Overpass query is made—and
+shows the estimated camera location and crop's field-of-view frustum. Overture
+source data may itself include OpenStreetMap contributions. It embeds the
+selected perspective crop when available, otherwise the source panorama. The
+image is a reference panel only; it is not projected onto the model. An
+internet connection is required. Install the Overture client in the active Python
+environment with `python -m pip install -r ../requirements.txt` (or
+`python -m pip install overturemaps==1.0.2` if installing only that dependency).
+The script downloads only Overture building data within the selected camera
+radius and filters the bounding-box result to the actual radius. The scene
+hover text shows Overture height provenance and confidence when available.
+`--overture-lidar-only` keeps only buildings with direct heights attributed to
+USGS LiDAR. To compare with the earlier OSM-footprints plus Overture-heights
+view, pass `--include-osm`; combine it with `--no-overture` to show OSM only.
+Use `--overture-release RELEASE` to select a release. Image folders are
+searched both in the current directory and beside the script; pass
+`--crop-dir` or `--panorama-dir` if your images are elsewhere. When Overture
+has no direct height, its floor/roof fields are used for labeled estimates;
+features without height metadata use the labeled 9-meter fallback.
+
+For a USGS LiDAR-height-only comparison, run:
+
+```bash
+python visualize_building_camera.py --crop pano_000_center.jpg --overture-lidar-only
+```
+
+This keeps only Overture features whose direct height has USGS LiDAR
+provenance, and extrudes them using that reported height. Overture's building
+polygon geometry is not guaranteed to be derived from LiDAR; its provenance is
+identified in the scene. This is not a reconstruction directly from raw LiDAR
+point clouds.
+
 ### Run balcony detection
 
 1. Add input images to the `Yolo_Balcony_Detector/input/images` folder.

@@ -51,3 +51,6 @@ Gather_Balcony/colmap_workspace/mesh/
 /Street_Scene_Segmentation/runs
 /street_images
 mapillary_access.json
+/Gather_Balcony/neighborhood_scenes
+/perspective_crops
+/street_images_renamed

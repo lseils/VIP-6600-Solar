@@ -20,6 +20,12 @@ FALSE_POSITIVE = (30, 130, 255, 255)
 GROUND_TRUTH = (255, 220, 40, 255)
 PREDICTION = (30, 190, 220, 255)
 FILL_ALPHA = 65
+CLASS_COLORS = {
+    "tree": (40, 210, 70, 255),
+    "building facade": (255, 145, 30, 255),
+    "ground": (170, 105, 45, 255),
+    "sky": (40, 150, 255, 255),
+}
 
 
 def load_json(path: Path) -> dict[str, Any]:
@@ -130,11 +136,26 @@ def draw_prediction_panel(
     font = load_font()
 
     for prediction in predictions:
-        color = PREDICTION
+        label = str(prediction.get("label", "object")).lower()
+        color = CLASS_COLORS.get(label, PREDICTION)
         xmin, ymin, width, height = prediction["bbox"]
         draw.rectangle((xmin, ymin, xmin + width, ymin + height), outline=color, width=8)
-        label = f"{prediction['score']:.2f}"
-        draw.text((xmin, ymin), label, fill=color, font=font)
+        text = f"{prediction.get('label', 'object')} {prediction['score']:.2f}"
+        draw.text((xmin, ymin), text, fill=color, font=font)
+    legend_x = 30
+    legend_y = 30
+    for label, color in CLASS_COLORS.items():
+        draw.rectangle(
+            (legend_x, legend_y + 7, legend_x + 25, legend_y + 32),
+            fill=color,
+        )
+        draw.text(
+            (legend_x + 35, legend_y),
+            label,
+            fill=(255, 255, 255, 255),
+            font=font,
+        )
+        legend_x += 260
     draw_title(draw, title, font)
     return panel
 
@@ -207,15 +228,29 @@ def run_inference(
         target_sizes=[(image.height, image.width)],
     )[0]
     predictions = []
-    for box, score in zip(result["boxes"].tolist(), result["scores"].tolist()):
+    labels = result.get("text_labels", result.get("labels", []))
+    for box, score, label in zip(
+        result["boxes"].tolist(),
+        result["scores"].tolist(),
+        labels,
+    ):
         xmin, ymin, xmax, ymax = box
         predictions.append(
             {
                 "bbox": [xmin, ymin, xmax - xmin, ymax - ymin],
                 "score": score,
+                "label": str(label),
             }
         )
     return predictions
+
+
+def load_model(model_id: str, device: torch.device) -> tuple[Any, Any]:
+    """Load the configured Grounding DINO processor and model."""
+    processor = GroundingDinoProcessor.from_pretrained(model_id)
+    model = AutoModelForZeroShotObjectDetection.from_pretrained(model_id).to(device)
+    model.eval()
+    return model, processor
 
 
 def main() -> int:
@@ -238,25 +273,31 @@ def main() -> int:
     if not run_name or Path(run_name).name != run_name:
         raise SystemExit("--run-name must be a simple folder name")
     source_dir = (config_path.parent / data_config["source_dir"]).resolve()
-    annotations_path = config_path.parent / data_config["output_dir"] / "all.json"
-    annotations_data = load_json(annotations_path.resolve())
-
     randomizer = random.Random(dino_config["inference_seed"])
-    sampled_images = list(annotations_data["images"])
+    if data_config.get("inference_only", False):
+        sampled_images = [
+            {"id": index, "file_name": path.name}
+            for index, path in enumerate(
+                sorted(source_dir.glob("*.jpg")), start=1
+            )
+        ]
+        annotations_by_image = {}
+    else:
+        annotations_path = config_path.parent / data_config["output_dir"] / "all.json"
+        annotations_data = load_json(annotations_path.resolve())
+        sampled_images = list(annotations_data["images"])
+        annotations_by_image = {}
+        for annotation in annotations_data["annotations"]:
+            annotations_by_image.setdefault(annotation["image_id"], []).append(annotation)
+
     randomizer.shuffle(sampled_images)
     image_count = args.image_count or int(dino_config["demo_image_count"])
     if image_count <= 0:
         raise SystemExit("--image-count must be positive")
     sampled_images = sampled_images[:image_count]
-    annotations_by_image = {}
-    for annotation in annotations_data["annotations"]:
-        annotations_by_image.setdefault(annotation["image_id"], []).append(annotation)
-
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Loading {dino_config['model_id']} on {device}...")
-    processor = GroundingDinoProcessor.from_pretrained(dino_config["model_id"])
-    model = AutoModelForZeroShotObjectDetection.from_pretrained(dino_config["model_id"]).to(device)
-    model.eval()
+    model, processor = load_model(dino_config["model_id"], device)
 
     output_dir = config_path.parent / runs_config["output_dir"] / run_name / "dino"
     visualization_dir = output_dir / "visualizations"
@@ -268,7 +309,7 @@ def main() -> int:
     for sample_index, image_record in enumerate(sampled_images, start=1):
         image_path = source_dir / image_record["file_name"]
         image = Image.open(image_path).convert("RGB")
-        ground_truth = annotations_by_image[image_record["id"]]
+        ground_truth = annotations_by_image.get(image_record["id"], [])
         predictions = run_inference(
             model,
             processor,
@@ -278,8 +319,10 @@ def main() -> int:
             float(dino_config["text_threshold"]),
             device,
         )
-        matches, missed_ground_truth, false_predictions = match_boxes(
-            ground_truth, predictions, iou_threshold
+        matches, missed_ground_truth, false_predictions = (
+            match_boxes(ground_truth, predictions, iou_threshold)
+            if ground_truth
+            else ([], set(), set(range(len(predictions))))
         )
         matched_ground_truth = {ground_truth_index for ground_truth_index, _, _ in matches}
         matched_predictions = {prediction_index for _, prediction_index, _ in matches}
@@ -303,27 +346,26 @@ def main() -> int:
         all_metrics.append(metrics)
         all_predictions.append({"image": image_record["file_name"], "predictions": predictions})
 
-        panels = [
-            draw_ground_truth_panel(
-                image,
-                ground_truth,
-                f"GROUND TRUTH | P {metrics['precision']:.2f} R {metrics['recall']:.2f} F1 {metrics['f1']:.2f}",
-            ),
-            draw_prediction_panel(
-                image,
-                predictions,
-                f"DINO PREDICTIONS | P {metrics['precision']:.2f} R {metrics['recall']:.2f} F1 {metrics['f1']:.2f}",
-            ),
-            draw_difference_panel(
-                image,
-                ground_truth,
-                predictions,
-                matches,
-                missed_ground_truth,
-                false_predictions,
-                f"DINO COMPARISON | P {metrics['precision']:.2f} R {metrics['recall']:.2f} F1 {metrics['f1']:.2f}",
-            ),
-        ]
+        if data_config.get("inference_only", False):
+            panels = [draw_prediction_panel(
+                image, predictions, "DINO PREDICTIONS"
+            )]
+        else:
+            panels = [
+                draw_ground_truth_panel(
+                    image, ground_truth,
+                    f"GROUND TRUTH | P {metrics['precision']:.2f} R {metrics['recall']:.2f} F1 {metrics['f1']:.2f}",
+                ),
+                draw_prediction_panel(
+                    image, predictions,
+                    f"DINO PREDICTIONS | P {metrics['precision']:.2f} R {metrics['recall']:.2f} F1 {metrics['f1']:.2f}",
+                ),
+                draw_difference_panel(
+                    image, ground_truth, predictions, matches,
+                    missed_ground_truth, false_predictions,
+                    f"DINO COMPARISON | P {metrics['precision']:.2f} R {metrics['recall']:.2f} F1 {metrics['f1']:.2f}",
+                ),
+            ]
         safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(image_record["file_name"]).stem)
         output_path = visualization_dir / f"{sample_index:02d}_{safe_stem}_comparison.png"
         make_panel(panels, output_path)

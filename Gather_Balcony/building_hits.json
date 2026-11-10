@@ -1,0 +1,242 @@
+[
+  {
+    "crop_name": "pano_000_left.jpg",
+    "pano_id": "wKInQ9XkByl_YP_ypqwVig",
+    "bearing": 220.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 20.14,
+      "facade_normal_bearing": 88.8,
+      "incidence_deg": 48.8,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_000_center.jpg",
+    "pano_id": "wKInQ9XkByl_YP_ypqwVig",
+    "bearing": 250.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 13.83,
+      "facade_normal_bearing": 88.9,
+      "incidence_deg": 18.9,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_000_right.jpg",
+    "pano_id": "wKInQ9XkByl_YP_ypqwVig",
+    "bearing": 280.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 14.9,
+      "facade_normal_bearing": 88.9,
+      "incidence_deg": 11.1,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_001_left.jpg",
+    "pano_id": "_jCTn4Z0ZWLIpm_nZOvP6w",
+    "bearing": 220.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 20.1,
+      "facade_normal_bearing": 88.9,
+      "incidence_deg": 48.9,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_001_center.jpg",
+    "pano_id": "_jCTn4Z0ZWLIpm_nZOvP6w",
+    "bearing": 250.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 13.26,
+      "facade_normal_bearing": 89.0,
+      "incidence_deg": 19.0,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_001_right.jpg",
+    "pano_id": "_jCTn4Z0ZWLIpm_nZOvP6w",
+    "bearing": 280.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 12.61,
+      "facade_normal_bearing": 89.1,
+      "incidence_deg": 10.9,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_002_left.jpg",
+    "pano_id": "k9o58gxKqmMQus_20O0L_Q",
+    "bearing": 220.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 19.26,
+      "facade_normal_bearing": 89.0,
+      "incidence_deg": 49.0,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_002_center.jpg",
+    "pano_id": "k9o58gxKqmMQus_20O0L_Q",
+    "bearing": 250.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 13.2,
+      "facade_normal_bearing": 89.1,
+      "incidence_deg": 19.1,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_002_right.jpg",
+    "pano_id": "k9o58gxKqmMQus_20O0L_Q",
+    "bearing": 280.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 12.87,
+      "facade_normal_bearing": 89.2,
+      "incidence_deg": 10.8,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_003_left.jpg",
+    "pano_id": "AENIkZUN3CsrzUUI2bG-bw",
+    "bearing": 220.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 19.18,
+      "facade_normal_bearing": 89.1,
+      "incidence_deg": 49.1,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_003_center.jpg",
+    "pano_id": "AENIkZUN3CsrzUUI2bG-bw",
+    "bearing": 250.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 13.46,
+      "facade_normal_bearing": 89.2,
+      "incidence_deg": 19.2,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_003_right.jpg",
+    "pano_id": "AENIkZUN3CsrzUUI2bG-bw",
+    "bearing": 280.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 13.59,
+      "facade_normal_bearing": 89.3,
+      "incidence_deg": 10.7,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_004_left.jpg",
+    "pano_id": "4OvuRTT9h0RXGbpZJT_GTQ",
+    "bearing": 220.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 19.56,
+      "facade_normal_bearing": 89.2,
+      "incidence_deg": 49.2,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_004_center.jpg",
+    "pano_id": "4OvuRTT9h0RXGbpZJT_GTQ",
+    "bearing": 250.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 14.21,
+      "facade_normal_bearing": 89.3,
+      "incidence_deg": 19.3,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  },
+  {
+    "crop_name": "pano_004_right.jpg",
+    "pano_id": "4OvuRTT9h0RXGbpZJT_GTQ",
+    "bearing": 280.0,
+    "elevation": 16.0,
+    "hit": {
+      "osm_type": "relation",
+      "osm_id": "7692433",
+      "distance_m": 13.65,
+      "facade_normal_bearing": 89.3,
+      "incidence_deg": 10.7,
+      "grazing_flag": false,
+      "height_m": 15.0,
+      "height_source": "osm"
+    }
+  }
+]

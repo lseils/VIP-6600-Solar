@@ -35,7 +35,7 @@ if not API_KEY:
 # CONFIG
 # =============================================================================
 OUTPUT_FOLDER  = "street_images"
-METADATA_FILE  = "panorama_metadata.json"
+METADATA_FILE  = "street_images/panorama_metadata.json"
 ZOOM_LEVEL     = 3      # Zoom 3 → 8x4 tiles → 4096x2048 equirectangular
 
 # Only the FIRST and LAST coordinate matter — the script interpolates every
@@ -108,18 +108,32 @@ def get_dense_pano_ids(api_key: str, start_coord, end_coord,
 # STEP 3: Real GPS metadata for a pano ID
 # =============================================================================
 def get_pano_metadata(api_key: str, session: str, pano_id: str):
-    """Returns (lat, lng, heading) or None."""
-    url = (
-        f"https://tile.googleapis.com/v1/streetview/metadata"
-        f"?session={session}&key={api_key}&panoId={pano_id}"
+    """Returns a dict of metadata fields, or None."""
+    r = requests.get(
+        "https://tile.googleapis.com/v1/streetview/metadata",
+        params={"session": session, "key": api_key, "panoId": pano_id},
+        timeout=30,
     )
-    r = requests.get(url)
     if r.status_code != 200:
         return None
-    meta = r.json()
-    if "lat" not in meta or "lng" not in meta:
+    m = r.json()
+    if "lat" not in m or "lng" not in m:
         return None
-    return meta["lat"], meta["lng"], meta.get("heading", 0.0)
+    return {
+        "lat":          m["lat"],
+        "lng":          m["lng"],
+        "heading":      m.get("heading", 0.0),
+        "tilt":         m.get("tilt", 90.0),      # 90 = horizon already level
+        "roll":         m.get("roll", 0.0),
+        "date":         m.get("date"),            # "YYYY-MM"
+        "image_width":  m.get("imageWidth"),
+        "image_height": m.get("imageHeight"),
+        "tile_width":   m.get("tileWidth"),
+        "tile_height":  m.get("tileHeight"),
+        "imagery_type": m.get("imageryType"),
+        "copyright":    m.get("copyright"),
+        "links":        m.get("links", []),
+    }
 
 
 # =============================================================================
@@ -208,9 +222,13 @@ def main():
         if meta is None:
             print(f"  [SKIP] No metadata for {pano_id[:12]}")
             continue
+        if meta["imagery_type"] == "indoor":
+            print("  [SKIP] indoor imagery")
+            continue
 
-        real_lat, real_lng, car_heading = meta
-        print(f"  GPS: ({real_lat:.6f}, {real_lng:.6f})  Car heading: {car_heading:.1f}°")
+        print(f"  GPS: ({meta['lat']:.6f}, {meta['lng']:.6f})  "
+              f"heading {meta['heading']:.1f}°  tilt {meta['tilt']:.1f}°  "
+              f"roll {meta['roll']:.1f}°  date {meta['date']}")
 
         fname = download_and_stitch_panorama(
             API_KEY, session, pano_id, OUTPUT_FOLDER, index
@@ -222,11 +240,11 @@ def main():
             "image_name":  fname,
             "pano_index":  index,
             "pano_id":     pano_id,
-            "lat":         real_lat,
-            "lng":         real_lng,
-            "car_heading": car_heading,
+            "car_heading": meta["heading"],   # keeps crop_perspective.py working
+            **meta,
         })
 
+    # Write metadata once, after the loop has finished
     with open(METADATA_FILE, "w") as f:
         json.dump(all_metadata, f, indent=2)
 
