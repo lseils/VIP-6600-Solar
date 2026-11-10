@@ -49,7 +49,7 @@ IMGSZ        = 640    # YOLO input size
 # LOAD MODELS
 # =============================================================================
 def load_models():
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"Device: {device} ({torch.cuda.get_device_name(0) if device == 'cuda' else 'CPU'})")
 
     print("Loading BFA-YOLO...")
@@ -60,7 +60,7 @@ def load_models():
     depth_pipe = pipeline(
         task="depth-estimation",
         model=DEPTH_MODEL,
-        device=0 if device == "cuda" else -1,
+        device=device,
     )
     print("  Depth Anything V2 loaded.")
 

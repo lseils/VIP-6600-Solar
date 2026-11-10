@@ -48,12 +48,12 @@ PROTRUSION    = 0.08    # how far beyond wall plane (fraction of depth range)
 # =============================================================================
 def load_model():
     print("Loading Depth Anything V2...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"  Using device: {device} ({torch.cuda.get_device_name(0) if device == 'cuda' else 'CPU'})")
     pipe = pipeline(
         task="depth-estimation",
         model=MODEL_ID,
-        device=0 if device == "cuda" else -1,
+        device=device,
     )
     print("  Model loaded.")
     return pipe
