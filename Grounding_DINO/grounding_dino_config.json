@@ -1,0 +1,36 @@
+{
+  "data": {
+    "source_dir": "../street_images_renamed",
+    "output_dir": "prepared",
+    "inference_only": true,
+    "validation_fraction": 0.2,
+    "random_seed": 6600
+  },
+  "runs": {
+    "output_dir": "runs",
+    "default_run_name": "demo_10"
+  },
+  "grounding_dino": {
+    "model_id": "IDEA-Research/grounding-dino-tiny",
+    "text_prompt": "tree. building facade. ground. sky.",
+    "box_threshold": 0.20,
+    "text_threshold": 0.15,
+    "iou_threshold": 0.5,
+    "demo_image_count": 10,
+    "inference_seed": 6600,
+    "model_config": "",
+    "checkpoint": ""
+  },
+  "sam": {
+    "model_id": "facebook/sam-vit-base",
+    "mask_iou_threshold": 0.5,
+    "multimask_output": false,
+    "mask_cleanup": {
+      "merge_classes": ["building facade", "ground", "sky"],
+      "closing_radius_px": 7,
+      "minimum_component_fraction": 0.00005,
+      "tree_facade_iou_threshold": 0.2,
+      "tree_facade_score_ratio": 0.75
+    }
+  }
+}

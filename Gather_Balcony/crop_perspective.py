@@ -15,9 +15,9 @@ Outputs:
   perspective_crops/pano_000_center.jpg  ← facing facade directly
   perspective_crops/pano_000_left.jpg    ← 30° left of facade
   perspective_crops/pano_000_right.jpg   ← 30° right of facade
+  crop_manifest.json                     ← per-crop camera geometry (for locate_buildings.py)
 """
 
-import os
 import json
 import numpy as np
 import cv2
@@ -26,9 +26,17 @@ from pathlib import Path
 # =============================================================================
 # CONFIG — tune these without re-downloading anything
 # =============================================================================
-INPUT_DIR   = "street_images"           # raw equirectangular panoramas
-OUTPUT_DIR  = "perspective_crops"       # COLMAP input folder
-META_FILE   = "panorama_metadata.json"
+BASE_DIR = Path(__file__).resolve().parent
+REPO_ROOT = BASE_DIR.parent
+LOCAL_INPUT_DIR = BASE_DIR / "street_images"
+ROOT_INPUT_DIR = REPO_ROOT / "street_images"
+INPUT_DIR = (
+    LOCAL_INPUT_DIR
+    if (LOCAL_INPUT_DIR / "panorama_metadata.json").is_file()
+    else ROOT_INPUT_DIR
+)
+OUTPUT_DIR = BASE_DIR / "perspective_crops"  # Also used by the scene builder.
+META_FILE = INPUT_DIR / "panorama_metadata.json"
 
 # Compass bearing the building faces FROM the street.
 # West = 270, East = 90, North = 0, South = 180.
@@ -94,15 +102,15 @@ def equirect_to_perspective(pano: np.ndarray,
     ry = -(yv - cy) / f   # flip so positive Y is up
     rz =  np.ones_like(rx)
 
-    # --- Rotation 1: Yaw around the Y axis ---
-    rx2 =  rx * np.cos(yaw) + rz * np.sin(yaw)
-    ry2 =  ry
-    rz2 = -rx * np.sin(yaw) + rz * np.cos(yaw)
+    # --- Rotation 1: Pitch around the camera's X axis (positive = look up) ---
+    rx2 = rx
+    ry2 = ry * np.cos(pitch) + rz * np.sin(pitch)
+    rz2 = -ry * np.sin(pitch) + rz * np.cos(pitch)
 
-    # --- Rotation 2: Pitch around the X axis ---
-    rx3 =  rx2
-    ry3 =  ry2 * np.cos(pitch) - rz2 * np.sin(pitch)
-    rz3 =  ry2 * np.sin(pitch) + rz2 * np.cos(pitch)
+    # --- Rotation 2: Yaw around the vertical axis ---
+    rx3 = rx2 * np.cos(yaw) + rz2 * np.sin(yaw)
+    ry3 = ry2
+    rz3 = -rx2 * np.sin(yaw) + rz2 * np.cos(yaw)
 
     # Normalize to unit sphere
     norm = np.sqrt(rx3**2 + ry3**2 + rz3**2)
@@ -129,19 +137,23 @@ def equirect_to_perspective(pano: np.ndarray,
 # MAIN
 # =============================================================================
 def main():
-    Path(OUTPUT_DIR).mkdir(exist_ok=True)
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
     with open(META_FILE) as f:
         metas = json.load(f)
 
+    print(f"Reading panoramas and metadata from: {INPUT_DIR}")
+    print(f"Saving perspective crops to: {OUTPUT_DIR}")
     print(f"Target bearing (building direction): {TARGET_BEARING}°")
     print(f"Crop offsets: { {k: f'{TARGET_BEARING + v}°' for k, v in CROP_OFFSETS.items()} }")
     print(f"FOV: {FOV_DEG}°  |  Pitch: {PITCH_DEG}°  |  Output: {OUT_W}×{OUT_H}\n")
 
+    manifest = []   # per-crop camera geometry, consumed by locate_buildings.py
+
     ok_count = 0
     for meta in metas:
-        img_path = os.path.join(INPUT_DIR, meta["image_name"])
-        pano = cv2.imread(img_path)
+        img_path = INPUT_DIR / meta["image_name"]
+        pano = cv2.imread(str(img_path))
 
         if pano is None:
             print(f"[SKIP] {img_path} — file not found or unreadable")
@@ -172,16 +184,34 @@ def main():
 
             base_name = meta["image_name"].replace(".jpg", "")
             out_name  = f"{base_name}_{crop_name}.jpg"
-            out_path  = os.path.join(OUTPUT_DIR, out_name)
-            cv2.imwrite(out_path, crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            out_path  = OUTPUT_DIR / out_name
+            cv2.imwrite(str(out_path), crop, [cv2.IMWRITE_JPEG_QUALITY, 95])
+
+            manifest.append({
+                "crop_name":      out_name,
+                "pano_id":        meta["pano_id"],
+                "lat":            meta["lat"],
+                "lng":            meta["lng"],
+                "car_heading":    meta["car_heading"],
+                "bearing_center": (TARGET_BEARING + bearing_offset) % 360.0,
+                "yaw_deg":        yaw_deg,
+                "pitch_deg":      PITCH_DEG,
+                "fov_deg":        FOV_DEG,
+                "out_w":          OUT_W,
+                "out_h":          OUT_H,
+            })
             ok_count += 1
 
         print()
+
+    with open(BASE_DIR / "crop_manifest.json", "w") as f:
+        json.dump(manifest, f, indent=2)
 
     total_panos = len(metas)
     print(f"{'='*52}")
     print(f"  Done! {ok_count} crops from {total_panos} panoramas saved to '{OUTPUT_DIR}/'")
     print(f"  ({total_panos} × {len(CROP_OFFSETS)} crops = {total_panos * len(CROP_OFFSETS)} total)")
+    print(f"  Crop manifest → crop_manifest.json")
     print(f"  Next step: point run_colmap.sh at '{OUTPUT_DIR}/'")
     print(f"{'='*52}")
 
