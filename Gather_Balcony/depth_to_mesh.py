@@ -186,12 +186,12 @@ def main():
     image_name = Path(args.image).stem
 
     print(f"Loading Depth Anything V2...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"  Device: {device}")
     depth_pipe = pipeline(
         task="depth-estimation",
         model=DEPTH_MODEL,
-        device=0 if device == "cuda" else -1,
+        device=device,
     )
 
     print(f"\nProcessing {args.image}...")

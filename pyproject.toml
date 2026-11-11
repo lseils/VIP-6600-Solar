@@ -1,0 +1,37 @@
+[project]
+name = "vip-6600-solar"
+version = "0.1.0"
+description = "Balcony Plug-and-Play solar PV assessment pipeline"
+readme = "README.md"
+# open3d 0.19 ships wheels for Python <= 3.12 only
+requires-python = ">=3.11,<3.13"
+dependencies = [
+    "numpy",
+    "opencv-python",
+    "open3d>=0.19",
+    "pillow",
+    "python-dotenv",
+    "pyyaml",
+    "requests",
+    "torch",
+    "torchvision",
+    "transformers",
+    "ultralytics",
+    # custom modules in the Yolo_Balcony_Detector submodule (block.py, rmt.py)
+    "einops",
+    "timm",
+    "pycolmap>=4.2.1",
+]
+
+[tool.uv]
+package = false
+
+# Linux gets CUDA 12.6 wheels (matches the cluster); macOS/Windows use PyPI (MPS/CPU).
+[tool.uv.sources]
+torch = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cu126", marker = "sys_platform == 'linux'" }]
+
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true

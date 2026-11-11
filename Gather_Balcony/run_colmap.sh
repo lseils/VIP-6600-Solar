@@ -11,7 +11,7 @@ set -e  # Exit on any error
 # -----------------------------------------------------------------------------
 IMAGE_DIR="perspective_crops"           # Output folder from fetch_streetview.py
 COLMAP_DIR="colmap_workspace"       # Where all COLMAP outputs will live
-NUM_THREADS=$(nproc)                # Use all available CPU cores
+NUM_THREADS=$(nproc 2>/dev/null || sysctl -n hw.ncpu)  # Use all available CPU cores
 GPU_INDEX=0                     # Set to -1 if no GPU available
 
 # -----------------------------------------------------------------------------
@@ -29,11 +29,14 @@ echo "============================================"
 echo "  COLMAP Street View Pipeline"
 echo "============================================"
 
-# PACE HPC: COLMAP runs inside a Singularity container
-colmap() {
-    apptainer exec --nv /usr/local/pace-apps/manual/packages/singularity_images/colmap-3.10.sif colmap "$@"
-}
-export -f colmap
+# Use a local COLMAP if installed; otherwise fall back to the PACE HPC
+# Singularity container.
+if ! command -v colmap >/dev/null; then
+    colmap() {
+        apptainer exec --nv /usr/local/pace-apps/manual/packages/singularity_images/colmap-3.10.sif colmap "$@"
+    }
+    export -f colmap
+fi
 
 echo "[OK] COLMAP loaded successfully"
 
@@ -181,7 +184,5 @@ echo "    Dense cloud:      $DENSE_DIR/fused.ply"
 echo "    Delaunay mesh:    $MESH_DIR/mesh_delaunay.ply"
 echo ""
 echo "  Next step — clean up and export for CAD/BIM:"
-echo "    source venv/bin/activate"
-echo "    pip install open3d"
-echo "    python open3d_postprocess.py"
+echo "    uv run python open3d_postprocess.py"
 echo ""

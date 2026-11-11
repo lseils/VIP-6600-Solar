@@ -58,9 +58,65 @@ low-income renters.
 
 ## Usage
 
+### Setup
+
+Install [uv](https://docs.astral.sh/uv/), then from the repository root:
+
+```bash
+git submodule update --init   # fetch Yolo_Balcony_Detector
+uv sync                       # create .venv from pyproject.toml / uv.lock
+cp .env.example .env          # then add your GOOGLE_MAPS_API_KEY
+```
+
+The depth scripts download Depth Anything V2 Large (~2.5 GB) from Hugging Face
+on first use and cache it in `~/.cache/huggingface`. To fetch it ahead of time:
+
+```bash
+uv run hf download depth-anything/Depth-Anything-V2-Large-hf
+```
+
+Run scripts with `uv run python <script>.py` (or activate `.venv`). Linux
+installs CUDA 12.6 PyTorch wheels; macOS uses the Apple GPU (MPS) or CPU.
+
 > [!NOTE]
-> This repository was set up for a Linux computing-cluster workflow.
-> Dependencies and commands may differ on other operating systems.
+> `run_colmap.sh` uses a `colmap` binary from `PATH` if present, otherwise the
+> PACE cluster Apptainer image. Its dense steps need an NVIDIA GPU (CUDA). On a
+> machine with neither (e.g. macOS), `run_pipeline.py`'s `colmap` step runs the
+> sparse reconstruction with the pip `pycolmap` package instead, which is what
+> `depth_to_pointcloud.py` needs; use Docker or the cluster for COLMAP's dense
+> `fused.ply`. `requirements.txt` is a legacy `pip freeze` from
+> the cluster and is not used by uv.
+
+### Docker (Linux with an NVIDIA GPU)
+
+The image bundles CUDA COLMAP and the Python environment. It requires the
+[NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html).
+
+```bash
+docker build -t vip-solar .
+docker run --rm -it --gpus all --env-file .env -v "$PWD":/app \
+  -v hf-cache:/root/.cache/huggingface vip-solar
+```
+
+The `hf-cache` volume keeps downloaded model weights between container runs.
+
+The container starts in `Gather_Balcony`; run `python <script>.py` and
+`./run_colmap.sh` directly.
+
+### Run the pipeline for a site
+
+Put a site's coordinates, facade bearing and camera settings in a YAML file
+(see `Gather_Balcony/sites/midtown_example.yaml`), then from `Gather_Balcony`:
+
+```bash
+uv run python run_pipeline.py sites/midtown_example.yaml
+```
+
+Steps (`fetch`, `crop`, `colmap`, `depth`, `postprocess`) write to
+`outputs/<name>/` and are skipped when their outputs already exist. Pick steps
+with `--steps crop postprocess`; re-run finished ones with `--force`. The
+runner calls the existing scripts unchanged; the manual commands below still
+work.
 
 ### Gather balcony images and geometry
 
@@ -70,17 +126,17 @@ Run the following commands from the `Gather_Balcony` directory:
 # Clear old data from previous runs.
 rm -rf street_images colmap_workspace perspective_crops
 
-# Scrape images. Run inside the virtual environment.
-python fetch_streetview_tiles.py
+# Scrape images.
+uv run python fetch_streetview_tiles.py
 
-# Prepare images for COLMAP. Run inside the virtual environment.
-python crop_perspective.py
+# Prepare images for COLMAP.
+uv run python crop_perspective.py
 
-# Run COLMAP. Do not run this inside the virtual environment.
+# Run COLMAP.
 ./run_colmap.sh
 
 # Run post-processing.
-python open3d_postprocess.py
+uv run python open3d_postprocess.py
 ```
 
 `crop_perspective.py` reads panoramas from `Gather_Balcony/street_images/`

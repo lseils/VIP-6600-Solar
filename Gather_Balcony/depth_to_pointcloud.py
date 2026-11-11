@@ -157,14 +157,13 @@ def get_intrinsics(camera: dict):
 # DEPTH ESTIMATION
 # =============================================================================
 def estimate_depth(depth_pipe, image_path: str) -> np.ndarray:
-    """Relative depth, normalized 0-1 (higher = closer to camera)."""
+    """Relative inverse depth (disparity, higher = closer), up to scale and shift.
+
+    Uses the raw float prediction; result["depth"] is an 8-bit visualization.
+    """
     img = Image.open(image_path).convert("RGB")
     result = depth_pipe(img)
-    depth = np.array(result["depth"], dtype=np.float32)
-    dmin, dmax = depth.min(), depth.max()
-    if dmax - dmin > 0:
-        depth = (depth - dmin) / (dmax - dmin)
-    return depth
+    return result["predicted_depth"].squeeze().cpu().numpy().astype(np.float32)
 
 
 # =============================================================================
@@ -181,7 +180,8 @@ def calibrate_scale(depth: np.ndarray,
     For each 2D keypoint with a valid 3D point, compute:
       - relative depth at that pixel (from Depth Anything)
       - true depth (distance along camera Z-axis to the 3D point)
-    Then fit true_depth = a * relative_depth + b via least squares.
+    Depth Anything predicts affine-invariant inverse depth, so fit
+    1 / true_depth = a * relative_depth + b via least squares.
 
     COLMAP convention: X_cam = R @ X_world + t
     The camera-space Z coordinate is the "depth" along the optical axis.
@@ -204,23 +204,26 @@ def calibrate_scale(depth: np.ndarray,
         dx = int(px * depth_w / img_w)
         dy = int(py * depth_h / img_h)
         if 0 <= dx < depth_w and 0 <= dy < depth_h:
-            rel_d = depth[dy, dx]
-            if rel_d > 1e-6:
-                rel_depths.append(rel_d)
-                true_depths.append(true_z)
+            rel_depths.append(depth[dy, dx])
+            true_depths.append(true_z)
 
     if len(rel_depths) < 10:
-        return None, None  # not enough points to calibrate
+        return None, None, None  # not enough points to calibrate
 
     rel_depths = np.array(rel_depths)
     true_depths = np.array(true_depths)
 
-    # Least squares fit: true = a * rel + b
+    # Least squares fit in inverse-depth space: 1/true = a * rel + b.
+    # Refit on the best 80% a few times: bad sparse matches otherwise flip the slope.
     A = np.vstack([rel_depths, np.ones_like(rel_depths)]).T
-    result, residuals, rank, sv = np.linalg.lstsq(A, true_depths, rcond=None)
-    a, b = result
+    inv_true = 1.0 / true_depths
+    keep = np.ones(len(inv_true), bool)
+    for _ in range(3):
+        (a, b), *_ = np.linalg.lstsq(A[keep], inv_true[keep], rcond=None)
+        residual = np.abs(A @ [a, b] - inv_true)
+        keep = residual <= np.percentile(residual, 80)
 
-    return a, b
+    return a, b, true_depths.max()
 
 
 # =============================================================================
@@ -320,12 +323,12 @@ def main():
           f"{len(points3d)} sparse 3D points")
 
     print("\nLoading Depth Anything V2...")
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cuda" if torch.cuda.is_available() else "mps" if torch.backends.mps.is_available() else "cpu"
     print(f"  Device: {device}")
     depth_pipe = pipeline(
         task="depth-estimation",
         model=DEPTH_MODEL,
-        device=0 if device == "cuda" else -1,
+        device=device,
     )
 
     all_points = []
@@ -351,7 +354,7 @@ def main():
         depth_h, depth_w = depth.shape
 
         # Calibrate scale using sparse points
-        a, b = calibrate_scale(
+        a, b, max_sparse_z = calibrate_scale(
             depth, image_data, points3d,
             fx, fy, cx, cy, R, t, img_w, img_h, depth_w, depth_h
         )
@@ -360,12 +363,14 @@ def main():
             print(f"  [SKIP] Not enough sparse points to calibrate scale")
             continue
 
-        print(f"  Calibration: true_depth = {a:.4f} * rel_depth + {b:.4f}")
+        print(f"  Calibration: 1/true_depth = {a:.6f} * rel_depth + {b:.6f}")
         if a <= 0:
             print(f"  [WARN] Negative/zero scale factor — calibration may be unreliable")
 
-        depth_metric = a * depth + b
-        depth_metric = np.clip(depth_metric, 1e-3, None)  # avoid negative/zero depths
+        inv_depth = a * depth + b
+        depth_metric = np.where(inv_depth > 0, 1.0 / np.maximum(inv_depth, 1e-12), 0.0)
+        # Drop sky / far background: nothing beyond 3x the farthest sparse point.
+        depth_metric[depth_metric > 3 * max_sparse_z] = 0.0  # backproject skips depth 0
 
         # Load RGB
         rgb = cv2.imread(image_path)

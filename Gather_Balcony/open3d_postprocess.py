@@ -114,7 +114,8 @@ def reconstruct_and_export(pcd: o3d.geometry.PointCloud,
 
     print("      Running Poisson surface reconstruction...")
     mesh, densities = o3d.geometry.TriangleMesh.create_from_point_cloud_poisson(
-        pcd, depth=9, width=0, scale=1.1, linear_fit=False
+        pcd, depth=9, width=0, scale=1.1, linear_fit=False,
+        n_threads=1,  # multithreaded PoissonRecon randomly aborts (open3d 0.19)
     )
 
     # Trim low-density vertices (removes floating artifacts at mesh boundary)

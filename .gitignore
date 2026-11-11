@@ -11,6 +11,7 @@ venv/
 .venv/
 .env
 .env.*
+!.env.example
 
 # ── Editor / IDE ────────────────────────
 .vscode/
@@ -43,6 +44,7 @@ Gather_Balcony/colmap_workspace/dense/
 Gather_Balcony/colmap_workspace/sparse/
 Gather_Balcony/colmap_workspace/mesh/
 
+Gather_Balcony/outputs/
 /Grounding_DINO/demo_outputs
 /Training Data
 /Grounding_DINO/runs

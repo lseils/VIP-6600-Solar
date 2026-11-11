@@ -1,0 +1,18 @@
+# Site config for run_pipeline.py. Outputs go to outputs/<name>/.
+name: midtown_example
+
+# fetch_streetview_tiles.py — only first and last point matter; panoramas are
+# sampled every 4 m between them.
+path_coordinates:
+  - [33.764771, -84.382069]   # south end of brick building
+  - [33.765126, -84.382061]   # north end of brick building
+zoom_level: 3                 # 3 → 4096x2048 panoramas
+
+# crop_perspective.py
+target_bearing: 250.0         # compass bearing the facade faces from the street
+pitch_deg: 16.0               # tilt up toward upper floors
+fov_deg: 90
+
+# Steps run in this order; override with --steps on the command line.
+# colmap + depth need an NVIDIA GPU (depth reads COLMAP's sparse points).
+steps: [fetch, crop, colmap, depth, postprocess]
