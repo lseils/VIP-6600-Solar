@@ -45,3 +45,15 @@ Gather_Balcony/colmap_workspace/sparse/
 Gather_Balcony/colmap_workspace/mesh/
 
 Gather_Balcony/outputs/
+/Grounding_DINO/demo_outputs
+/Training Data
+/Grounding_DINO/runs
+/Grounding_DINO/visualizations
+Grounding_DINO/prepared/
+/Mapillary_Atlanta
+/Street_Scene_Segmentation/runs
+/street_images
+mapillary_access.json
+/Gather_Balcony/neighborhood_scenes
+/perspective_crops
+/street_images_renamed

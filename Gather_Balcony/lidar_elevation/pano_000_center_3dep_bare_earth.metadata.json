@@ -1,0 +1,45 @@
+{
+  "source": "USGS 3D Elevation Program (3DEP) Bare Earth DEM Dynamic service",
+  "service_url": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer",
+  "service_description_url": "https://elevation.nationalmap.gov/arcgis/rest/services/3DEPElevation/ImageServer?f=pjson",
+  "surface": "bare-earth digital elevation model (DEM)",
+  "input_center": {
+    "latitude": 33.76477068989027,
+    "longitude": -84.38206890204101
+  },
+  "radius_meters": 300.0,
+  "requested_bbox_wgs84": {
+    "west": -84.38531062954283,
+    "south": 33.7620757563653,
+    "east": -84.3788271745392,
+    "north": 33.76746562341524
+  },
+  "returned_dimensions_pixels": {
+    "width": 600,
+    "height": 600
+  },
+  "returned_pixel_size_meters": {
+    "x_meters": 1.0263536897976884,
+    "y_meters": 1.0263536897976884
+  },
+  "returned_extent": {
+    "xmin": 742149.2202666944,
+    "ymin": 3738846.6603025175,
+    "xmax": 742765.032480573,
+    "ymax": 3739462.472516396,
+    "epsg": 32616
+  },
+  "requested_resolution_meters_per_pixel": 1.0,
+  "output_format": "32-bit floating-point GeoTIFF",
+  "interpolation": "nearest neighbor",
+  "retrieved_at_utc": "2026-10-27T20:47:17.697338+00:00",
+  "output_file": "pano_000_center_3dep_bare_earth.tif",
+  "notes": [
+    "The service is a multi-resolution bare-earth DEM, not a surface model; buildings and tree canopy are intentionally not represented.",
+    "The raster is a square bounding export enclosing the requested radius and therefore includes corner pixels beyond the radius.",
+    "Requested pixel size controls the export grid; it does not guarantee the source DEM has that native resolution everywhere.",
+    "The returned extent and pixel dimensions are recorded above; the service may adjust the requested extent to match the output grid.",
+    "Source acquisition date and vertical datum can vary by source DEM. Check the service metadata and local source-product metadata before using elevations for survey-grade work."
+  ],
+  "crop_name": "pano_000_center.jpg"
+}
