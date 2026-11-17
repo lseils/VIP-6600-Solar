@@ -146,9 +146,13 @@ separate. LiDAR outlines use a simplified concave hull, and roof height is the
 95th-percentile aligned inlier elevation rather than the highest return.
 Overlapping roof regions at similar heights are merged; higher regions take
 precedence where they overlap, while uncovered Overture footprint areas keep
-their original height. Roof caps use constrained triangulation where
-available. Clusters need at least 20 points. This creates closed stepped
-height regions, not sloped roof surfaces. The Overture
+their original height. Each roof-height region is cleaned to remove unsupported
+interior holes and exported as a closed stepped solid. Rectangular regions use
+minimum-rotated prisms with explicit caps; supported irregular exteriors use
+constrained triangulation and fall back to a rectangular prism if closure
+validation fails. Separate roof elevations remain separate flat levels.
+Clusters need at least 20 points. This creates clean closed stepped-height
+regions, not sloped roof surfaces. The Overture
 footprint lineage may include OpenStreetMap; this orchestrator does not query
 OSM directly. Buildings are selected when their full footprint intersects the
 requested radius and are rendered with the complete footprint, even where it
@@ -273,21 +277,28 @@ and 5 (low, medium, and high vegetation), but exclude returns below 2 m above
 the DEM by default so short grass and shrubs do not affect balcony shade.
 Override that threshold with `--minimum-shade-relevant-height`. Class 5 is a
 tree-candidate proxy, not a guarantee of individual tree species or crown-only
-returns. Points up to 60 m above the DEM are clustered with DBSCAN; its `eps` is twice the mean distance
-to the three nearest neighbors measured from streamed LAS chunks, and
-`min_samples` is 5. To limit memory for 0.5 km scenes, clustering is partitioned
+returns. Points up to 60 m above the DEM are clustered independently by LAS
+class with DBSCAN. The current 3D `eps` values are 1.75 m for class 3, 2.25 m
+for class 4, and 3.0 m for class 5; `min_samples` is 5. Oversized connected
+clusters are recursively split along their widest horizontal axis at maximum
+diameters of 8 m, 12 m, and 18 m for classes 3, 4, and 5 respectively. To
+limit memory for
+0.5 km scenes, clustering is partitioned
 into 100 m spatial cells with a 25 m overlap; a deterministic reservoir sample
 keeps at most 5,000 points per class per cell, and at most 3,000 points per
 class are passed to each buffered DBSCAN fit. Clusters need at least 20 points.
-Each cluster is represented by a porous ellipsoidal crown sized from its
-5th-95th percentile LiDAR horizontal extents. The crown is a tapered layered
-profile; when the observed vertical return thickness is too small to describe
-a tree crown, its height is conservatively inferred from the horizontal crown
-diameter. Crown surface patches are sampled deterministically with
-class-specific foliage densities: 0.25 for low, 0.35 for medium, and 0.50 for
-high vegetation. The gaps are a geometric transmission approximation, not a
-calibrated leaf-area-index model. The disconnected class 3-5 crown meshes are
-grouped into separate vegetation-class render meshes.
+Each cluster is represented by a porous rounded ellipsoid sized from its
+5th-95th percentile LiDAR extents. Crown surface patches are sampled
+deterministically with class-specific foliage densities: 0.70 for low, 0.80
+for medium, and 0.88 for high vegetation. Crown bases are clamped to the
+lowest relevant return so the crown does not extend below the observed
+vegetation. Crowns use stacked porous layers with reduced radius toward the
+outer layers. Class 3 clusters are treated as flattened bushes and receive no
+trunk. Class 4 clusters receive a trunk when the crown is at least 4 m tall,
+and class 5 clusters receive a trunk. The gaps are a geometric transmission
+approximation, not a calibrated leaf-area-index model.
+The disconnected class 3-5 crown meshes are grouped into separate
+vegetation-class render meshes.
 
 Use `--vegetation-point-preview` to make the sampled, shade-relevant class 3-5
 returns visible in the HTML viewer at once instead of requiring legend toggles.
