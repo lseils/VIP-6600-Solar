@@ -3,18 +3,52 @@
     "model_id": "facebook/mask2former-swin-large-mapillary-vistas-semantic"
   },
   "data": {
-    "source_dir": "../Training Data/Labeled Balconies",
+    "source_dir": "../street_images_renamed",
     "image_count": 10,
     "random_seed": 6600
   },
   "outputs": {
     "root_dir": "runs",
-    "run_name": "mapillary_demo_10"
+    "run_name": "mapillary_vistas_demo_10"
   },
   "classes": [
-    {"name": "car", "mask_value": 1, "color": [220, 40, 40]},
-    {"name": "road", "mask_value": 2, "color": [40, 110, 220]},
-    {"name": "sidewalk", "mask_value": 3, "color": [230, 170, 40]},
-    {"name": "sky", "mask_value": 4, "color": [50, 190, 210]}
+    {
+      "name": "tree",
+      "mask_value": 1,
+      "color": [40, 210, 70],
+      "model_labels": ["Vegetation"]
+    },
+    {
+      "name": "building facade",
+      "mask_value": 2,
+      "color": [255, 145, 30],
+      "model_labels": ["Building", "Wall"]
+    },
+    {
+      "name": "ground",
+      "mask_value": 3,
+      "color": [170, 105, 45],
+      "model_labels": [
+        "Curb",
+        "Crosswalk - Plain",
+        "Curb Cut",
+        "Parking",
+        "Pedestrian Area",
+        "Road",
+        "Service Lane",
+        "Sidewalk",
+        "Terrain",
+        "Bike Lane",
+        "Rail Track",
+        "Lane Marking - Crosswalk",
+        "Lane Marking - General"
+      ]
+    },
+    {
+      "name": "sky",
+      "mask_value": 4,
+      "color": [40, 150, 255],
+      "model_labels": ["Sky"]
+    }
   ]
 }

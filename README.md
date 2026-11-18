@@ -444,6 +444,30 @@ and SAM checkpoints from Hugging Face. Results are written to
 `Grounding_DINO/demo_outputs`, including binary masks in `masks/`, comparison
 panels in `visualizations/`, and matched detection/mask IoU in `metrics.json`.
 
+### Run the parallel Mapillary Vistas Mask2Former pipeline
+
+The `Street_Scene_Segmentation` pipeline runs a separate, public
+Mask2Former checkpoint trained on Mapillary Vistas. It does not use DINO,
+CLIP, or SAM and does not require Street View image annotations:
+
+```bash
+python Street_Scene_Segmentation/run_mapillary.py
+```
+
+The default configuration uses `street_images_renamed/` and maps the model's
+native labels into:
+
+- `tree`: Vegetation
+- `building facade`: Building and Wall
+- `ground`: Road, sidewalk, terrain, curb, parking, pedestrian, crosswalk,
+  lane-marking, and rail-track classes
+- `sky`: Sky
+
+Change `image_count`, `random_seed`, `source_dir`, or the class alias lists in
+`Street_Scene_Segmentation/mapillary_config.json`. Each run writes a combined
+mask, per-class binary masks, flat and overlaid previews, and run metadata under
+`Street_Scene_Segmentation/runs/<run-name>/`.
+
 ### Reconstruct geometry with RANSAC
 
 1. Open the generated mesh in Rhinoceros 3D.
