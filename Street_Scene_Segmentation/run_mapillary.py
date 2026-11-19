@@ -24,18 +24,30 @@ def normalized_label(label: str) -> str:
     return " ".join(label.lower().replace("_", " ").split())
 
 
-def resolve_class_ids(model: Any, class_config: list[dict[str, Any]]) -> dict[str, int]:
+def resolve_class_ids(
+    model: Any,
+    class_config: list[dict[str, Any]],
+) -> dict[str, list[int]]:
     labels = model.config.id2label
     normalized_labels = {normalized_label(str(label)): int(index) for index, label in labels.items()}
     resolved = {}
     missing = []
     for item in class_config:
         name = item["name"]
-        class_id = normalized_labels.get(normalized_label(name))
-        if class_id is None:
-            missing.append(name)
+        source_labels = item.get("model_labels")
+        if source_labels is None:
+            source_labels = [name]
+        class_ids = []
+        for source_label in source_labels:
+            class_id = normalized_labels.get(normalized_label(source_label))
+            if class_id is None:
+                missing.append(f"{name}: {source_label}")
+            elif class_id not in class_ids:
+                class_ids.append(class_id)
+        if class_ids:
+            resolved[name] = class_ids
         else:
-            resolved[name] = class_id
+            resolved[name] = []
     if missing:
         available = ", ".join(sorted(normalized_labels))
         raise RuntimeError(f"Model labels missing {missing}. Available labels: {available}")
@@ -156,7 +168,8 @@ def main() -> int:
 
         local_mask = np.zeros(prediction.shape, dtype=np.uint8)
         for item in class_config:
-            local_mask[prediction == class_ids[item["name"]]] = item["mask_value"]
+            for class_id in class_ids[item["name"]]:
+                local_mask[prediction == class_id] = item["mask_value"]
 
         mask_path = mask_dir / f"{image_path.stem}_mask.png"
         Image.fromarray(local_mask, mode="L").save(mask_path)
@@ -168,6 +181,12 @@ def main() -> int:
                 "image": image_path.name,
                 "mask": str(mask_path.relative_to(output_dir)),
                 "visualization": str(visualization_path.relative_to(output_dir)),
+                "pixel_counts": {
+                    item["name"]: int(
+                        np.count_nonzero(local_mask == item["mask_value"])
+                    )
+                    for item in class_config
+                },
             }
         )
         print(f"Processed {image_path.name}")

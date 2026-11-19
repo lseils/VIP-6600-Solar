@@ -239,17 +239,19 @@ def draw_mask_panel(
     colors: list[tuple[int, int, int, int]],
     labels: list[str],
     title: str,
+    show_category_legend: bool = True,
 ) -> Image.Image:
     panel = image.copy().convert("RGBA")
     for mask, color in zip(masks, colors):
         draw_mask(panel, mask, color)
     draw = ImageDraw.Draw(panel)
     font = load_font()
-    x = 30
-    for label, color in CLASS_COLORS.items():
-        draw.rectangle((x, 37, x + 25, 62), fill=color)
-        draw.text((x + 35, 30), label, fill=(255, 255, 255, 255), font=font)
-        x += 260
+    if show_category_legend:
+        x = 30
+        for label, color in CLASS_COLORS.items():
+            draw.rectangle((x, 37, x + 25, 62), fill=color)
+            draw.text((x + 35, 30), label, fill=(255, 255, 255, 255), font=font)
+            x += 260
     draw_title(draw, title, font)
     return panel
 

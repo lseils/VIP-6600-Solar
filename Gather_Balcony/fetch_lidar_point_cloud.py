@@ -34,24 +34,27 @@ DEFAULT_MAX_VISUALIZATION_POINTS_PER_CLASS = 2_500
 VEGETATION_CLUSTER_CELL_SIZE_METERS = 100.0
 VEGETATION_CLUSTER_CELL_BUFFER_METERS = 25.0
 MAX_CLUSTERING_POINTS_PER_CELL_CLASS = 5_000
-MAX_PEAK_SEGMENTATION_POINTS_PER_CELL_CLASS = 3_000
+MAX_DBSCAN_POINTS_PER_CELL_CLASS = 3_000
 MIN_VEGETATION_HEIGHT_METERS = 0.5
 DEFAULT_SHADE_RELEVANT_MIN_HEIGHT_METERS = 2.0
 MAX_CANOPY_HEIGHT_METERS = 60.0
 TREE_LAS_CLASSIFICATION = 5
 MIN_VEGETATION_CLUSTER_POINTS = 20
-CANOPY_RASTER_CELL_METERS = 1.0
-CANOPY_PEAK_NEIGHBORHOOD_CELLS = 5
-MIN_TREE_PEAK_SEPARATION_METERS = 3.0
-MAX_TREE_CROWN_ASSIGNMENT_RADIUS_METERS = 15.0
-FOLIAGE_GRID_LATITUDE_SEGMENTS = 8
-FOLIAGE_GRID_LONGITUDE_SEGMENTS = 16
+DBSCAN_EPSILON_BY_CLASS = {3: 1.75, 4: 2.25, 5: 3.0}
+DBSCAN_MIN_SAMPLES_BY_CLASS = {3: 5, 4: 5, 5: 5}
+MAX_CROWN_DIAMETER_BY_CLASS = {3: 8.0, 4: 12.0, 5: 18.0}
+TRUNK_MIN_CROWN_HEIGHT_BY_CLASS = {3: 999.0, 4: 4.0, 5: 0.0}
+TRUNK_RADIUS_BY_CLASS = {4: 0.18, 5: 0.3}
+CROWN_LAYER_COUNT_BY_CLASS = {3: 2, 4: 3, 5: 4}
+CROWN_VERTICAL_SCALE_BY_CLASS = {3: 0.55, 4: 0.9, 5: 1.0}
+FOLIAGE_GRID_LATITUDE_SEGMENTS = 12
+FOLIAGE_GRID_LONGITUDE_SEGMENTS = 24
 MIN_INFERRED_CROWN_HEIGHT_RATIO = 0.65
 MAX_INFERRED_CROWN_HEIGHT_RATIO = 1.5
 FOLIAGE_DENSITY_BY_CLASS = {
-    3: 0.25,
-    4: 0.35,
-    5: 0.50,
+    3: 0.70,
+    4: 0.80,
+    5: 0.88,
 }
 MIN_CROWN_RADIUS_METERS = 0.75
 MIN_CROWN_HEIGHT_METERS = 2.0
@@ -453,8 +456,10 @@ def _porous_crown_surface(
     points_xyz: np.ndarray,
     foliage_density: float,
     random_seed: int,
+    layer_count: int = 1,
+    vertical_scale: float = 1.0,
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
-    """Build a porous ellipsoidal crown sized from a LiDAR cluster."""
+    """Build a porous rounded crown sized from a LiDAR cluster."""
     if len(points_xyz) < MIN_VEGETATION_CLUSTER_POINTS:
         return [], []
 
@@ -476,119 +481,189 @@ def _porous_crown_surface(
         ),
     )
     crown_top = float(upper[2])
-    crown_base = crown_top - inferred_height
+    crown_base = max(crown_top - inferred_height, float(lower[2]))
+    inferred_height = crown_top - crown_base
+    if inferred_height <= 0.0:
+        return [], []
     center = np.array((
         (lower[0] + upper[0]) / 2.0,
         (lower[1] + upper[1]) / 2.0,
         (crown_base + crown_top) / 2.0,
     ))
-    radii = np.array((
-        horizontal_radii[0],
-        horizontal_radii[1],
-        inferred_height / 2.0,
-    ))
     foliage_density = min(max(foliage_density, 0.05), 0.95)
+    layer_count = max(1, int(layer_count))
+    vertical_scale = min(max(vertical_scale, 0.25), 1.0)
 
     vertices: list[tuple[float, float, float]] = []
-    for latitude_index in range(FOLIAGE_GRID_LATITUDE_SEGMENTS + 1):
-        normalized_height = (
-            latitude_index / FOLIAGE_GRID_LATITUDE_SEGMENTS
-        )
-        phi = -math.pi / 2 + math.pi * normalized_height
-        shape_factor = math.sin(math.pi * normalized_height) ** 0.55
-        for longitude_index in range(FOLIAGE_GRID_LONGITUDE_SEGMENTS):
-            theta = 2 * math.pi * (
-                longitude_index / FOLIAGE_GRID_LONGITUDE_SEGMENTS
-            )
-            vertices.append((
-                float(center[0] + radii[0] * shape_factor * math.cos(theta)),
-                float(center[1] + radii[1] * shape_factor * math.sin(theta)),
-                float(crown_base + inferred_height * normalized_height),
-            ))
-
     faces: list[tuple[int, int, int]] = []
-    for latitude_index in range(FOLIAGE_GRID_LATITUDE_SEGMENTS):
-        for longitude_index in range(FOLIAGE_GRID_LONGITUDE_SEGMENTS):
-            keep = random_generator.random() < foliage_density
-            if not keep:
-                continue
-            next_longitude = (
-                (longitude_index + 1) % FOLIAGE_GRID_LONGITUDE_SEGMENTS
+    for layer_index in range(layer_count):
+        layer_fraction = (
+            0.0
+            if layer_count == 1
+            else layer_index / (layer_count - 1) - 0.5
+        )
+        layer_scale = 1.0 - 0.16 * abs(layer_fraction)
+        layer_center = center + np.array((
+            0.18 * horizontal_radii[0] * layer_fraction,
+            -0.12 * horizontal_radii[1] * layer_fraction,
+            0.10 * inferred_height * layer_fraction,
+        ))
+        radii = np.array((
+            horizontal_radii[0] * layer_scale,
+            horizontal_radii[1] * layer_scale,
+            inferred_height / 2.0 * vertical_scale * layer_scale,
+        ))
+        layer_base = max(
+            float(lower[2]),
+            float(layer_center[2] - radii[2]),
+        )
+        layer_top = float(layer_center[2] + radii[2])
+        layer_offset = len(vertices)
+        for latitude_index in range(FOLIAGE_GRID_LATITUDE_SEGMENTS + 1):
+            normalized_height = (
+                latitude_index / FOLIAGE_GRID_LATITUDE_SEGMENTS
             )
-            first = latitude_index * FOLIAGE_GRID_LONGITUDE_SEGMENTS
-            second = (latitude_index + 1) * FOLIAGE_GRID_LONGITUDE_SEGMENTS
-            a = first + longitude_index
-            b = first + next_longitude
-            c = second + next_longitude
-            d = second + longitude_index
-            faces.extend(((a, b, c), (a, c, d)))
+            vertical_position = 2.0 * normalized_height - 1.0
+            shape_factor = math.sqrt(max(0.0, 1.0 - vertical_position**2))
+            for longitude_index in range(FOLIAGE_GRID_LONGITUDE_SEGMENTS):
+                theta = 2 * math.pi * (
+                    longitude_index / FOLIAGE_GRID_LONGITUDE_SEGMENTS
+                )
+                vertices.append((
+                    float(
+                        layer_center[0]
+                        + radii[0] * shape_factor * math.cos(theta)
+                    ),
+                    float(
+                        layer_center[1]
+                        + radii[1] * shape_factor * math.sin(theta)
+                    ),
+                    float(
+                        layer_base
+                        + (layer_top - layer_base) * normalized_height
+                    ),
+                ))
+        for latitude_index in range(FOLIAGE_GRID_LATITUDE_SEGMENTS):
+            for longitude_index in range(FOLIAGE_GRID_LONGITUDE_SEGMENTS):
+                if random_generator.random() >= foliage_density:
+                    continue
+                next_longitude = (
+                    (longitude_index + 1) % FOLIAGE_GRID_LONGITUDE_SEGMENTS
+                )
+                first = (
+                    layer_offset
+                    + latitude_index * FOLIAGE_GRID_LONGITUDE_SEGMENTS
+                )
+                second = (
+                    layer_offset
+                    + (latitude_index + 1) * FOLIAGE_GRID_LONGITUDE_SEGMENTS
+                )
+                a = first + longitude_index
+                b = first + next_longitude
+                c = second + next_longitude
+                d = second + longitude_index
+                faces.extend(((a, b, c), (a, c, d)))
 
     if not faces:
         return [], []
     return vertices, faces
 
 
-def _canopy_peak_clusters(
+def _dbscan_clusters(
     points_xyz: np.ndarray,
+    classification: int,
 ) -> tuple[list[tuple[int, np.ndarray]], int]:
-    """Split vegetation returns around local maxima in a canopy-height grid."""
-    from scipy.spatial import cKDTree
+    """Group one LAS vegetation class into spatially connected crowns."""
+    from sklearn.cluster import DBSCAN
 
-    grid_coordinates = np.floor(
-        points_xyz[:, :2] / CANOPY_RASTER_CELL_METERS
-    ).astype(np.int64)
-    maximum_by_cell: dict[tuple[int, int], float] = {}
-    for cell, elevation in zip(grid_coordinates, points_xyz[:, 2]):
-        key = (int(cell[0]), int(cell[1]))
-        maximum_by_cell[key] = max(
-            maximum_by_cell.get(key, -math.inf),
-            float(elevation),
-        )
-
-    candidates = []
-    neighborhood_radius = CANOPY_PEAK_NEIGHBORHOOD_CELLS // 2
-    for (east, north), elevation in maximum_by_cell.items():
-        is_peak = all(
-            elevation >= maximum_by_cell.get(
-                (east + east_delta, north + north_delta),
-                -math.inf,
-            )
-            for east_delta in range(-neighborhood_radius, neighborhood_radius + 1)
-            for north_delta in range(
-                -neighborhood_radius, neighborhood_radius + 1
-            )
-        )
-        if is_peak:
-            candidates.append((elevation, east, north))
-    candidates.sort(reverse=True)
-
-    peaks: list[tuple[float, float, float]] = []
-    for elevation, east, north in candidates:
-        point = np.array([
-            (east + 0.5) * CANOPY_RASTER_CELL_METERS,
-            (north + 0.5) * CANOPY_RASTER_CELL_METERS,
-            elevation,
-        ])
-        if all(
-            np.linalg.norm(point[:2] - np.asarray(existing[:2]))
-            >= MIN_TREE_PEAK_SEPARATION_METERS
-            for existing in peaks
-        ):
-            peaks.append(tuple(point))
-    if not peaks:
-        return [], 0
-
-    peak_xy = np.asarray(peaks)[:, :2]
-    _distances, nearest = cKDTree(peak_xy).query(
-        points_xyz[:, :2],
-        distance_upper_bound=MAX_TREE_CROWN_ASSIGNMENT_RADIUS_METERS,
-    )
+    labels = DBSCAN(
+        eps=DBSCAN_EPSILON_BY_CLASS[classification],
+        min_samples=DBSCAN_MIN_SAMPLES_BY_CLASS[classification],
+        metric="euclidean",
+        n_jobs=1,
+    ).fit_predict(points_xyz)
     clusters = []
-    for peak_index, peak in enumerate(peaks):
-        member_indices = np.flatnonzero(nearest == peak_index)
-        if len(member_indices) >= MIN_VEGETATION_CLUSTER_POINTS:
-            clusters.append((peak_index, points_xyz[member_indices]))
-    return clusters, len(peaks)
+    next_label = 0
+    for label in sorted(set(labels)):
+        if label < 0:
+            continue
+        cluster_points = points_xyz[labels == label]
+        if len(cluster_points) >= MIN_VEGETATION_CLUSTER_POINTS:
+            for split_points in _split_oversized_cluster(
+                cluster_points,
+                MAX_CROWN_DIAMETER_BY_CLASS[classification],
+            ):
+                clusters.append((next_label, split_points))
+                next_label += 1
+    return clusters, len(set(labels) - {-1})
+
+
+def _split_oversized_cluster(
+    points_xyz: np.ndarray,
+    maximum_diameter: float,
+) -> list[np.ndarray]:
+    """Split an oversized connected cluster along its widest horizontal axis."""
+    horizontal_span = np.ptp(points_xyz[:, :2], axis=0)
+    if (
+        max(horizontal_span) <= maximum_diameter
+        or len(points_xyz) < 2 * MIN_VEGETATION_CLUSTER_POINTS
+    ):
+        return [points_xyz]
+    split_axis = int(np.argmax(horizontal_span))
+    split_value = float(np.median(points_xyz[:, split_axis]))
+    left = points_xyz[points_xyz[:, split_axis] <= split_value]
+    right = points_xyz[points_xyz[:, split_axis] > split_value]
+    if (
+        len(left) < MIN_VEGETATION_CLUSTER_POINTS
+        or len(right) < MIN_VEGETATION_CLUSTER_POINTS
+    ):
+        return [points_xyz]
+    return [
+        subcluster
+        for half in (left, right)
+        for subcluster in _split_oversized_cluster(half, maximum_diameter)
+    ]
+
+
+def _trunk_mesh(
+    center_xy: np.ndarray,
+    base_z: float,
+    top_z: float,
+    radius: float,
+    segments: int = 8,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+    """Build a closed cylindrical trunk between ground and crown."""
+    if top_z <= base_z:
+        return [], []
+    vertices = []
+    for z in (base_z, top_z):
+        vertices.extend(
+            (
+                float(center_xy[0] + radius * math.cos(2 * math.pi * index / segments)),
+                float(center_xy[1] + radius * math.sin(2 * math.pi * index / segments)),
+                float(z),
+            )
+            for index in range(segments)
+        )
+    faces = [(index, (index + 1) % segments, segments + (index + 1) % segments)
+             for index in range(segments)]
+    faces.extend(
+        (
+            index,
+            segments + (index + 1) % segments,
+            segments + index,
+        )
+        for index in range(segments)
+    )
+    faces.append(tuple(range(segments - 1, -1, -1)))
+    faces.append(tuple(range(segments, 2 * segments)))
+    triangles = []
+    for face in faces:
+        triangles.extend(
+            (face[0], face[index], face[index + 1])
+            for index in range(1, len(face) - 1)
+        )
+    return vertices, triangles
 
 
 def _vegetation_meshes(
@@ -596,7 +671,7 @@ def _vegetation_meshes(
     raw_point_counts: dict[int, int] | None = None,
     core_bounds: tuple[float, float, float, float] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    """Detect canopy peaks and mesh individual crown regions."""
+    """Cluster each vegetation class and mesh porous crowns with trunks."""
     class_meshes = []
     class_metadata = {}
     for classification in (3, 4, 5):
@@ -614,7 +689,7 @@ def _vegetation_meshes(
                 ),
                 "cluster_count": 0,
                 "meshed_cluster_count": 0,
-                "canopy_peak_count": 0,
+                "dbscan_cluster_count": 0,
             }
             continue
 
@@ -629,11 +704,11 @@ def _vegetation_meshes(
                 "points_subsampled": len(xyz) < raw_point_count,
                 "cluster_count": 0,
                 "meshed_cluster_count": 0,
-                "canopy_peak_count": 0,
+                "dbscan_cluster_count": 0,
             }
             continue
 
-        clusters, peak_count = _canopy_peak_clusters(xyz)
+        clusters, _cluster_count = _dbscan_clusters(xyz, classification)
 
         vertices: list[tuple[float, float, float]] = []
         faces: list[tuple[int, int, int]] = []
@@ -654,7 +729,30 @@ def _vegetation_meshes(
                 cluster_points,
                 FOLIAGE_DENSITY_BY_CLASS[classification],
                 random_seed=classification * 1_000_003 + int(label),
+                layer_count=CROWN_LAYER_COUNT_BY_CLASS[classification],
+                vertical_scale=CROWN_VERTICAL_SCALE_BY_CLASS[classification],
             )
+            crown_top = float(np.percentile(cluster_points[:, 2], 95))
+            crown_base = crown_top - max(
+                MIN_CROWN_HEIGHT_METERS,
+                float(np.percentile(cluster_points[:, 2], 95))
+                - float(np.percentile(cluster_points[:, 2], 5)),
+            )
+            crown_height = crown_top - crown_base
+            if crown_height >= TRUNK_MIN_CROWN_HEIGHT_BY_CLASS[classification]:
+                trunk_vertices, trunk_faces = _trunk_mesh(
+                    np.mean(cluster_points[:, :2], axis=0),
+                    float(np.percentile(cluster_points[:, 2], 5))
+                    - DEFAULT_SHADE_RELEVANT_MIN_HEIGHT_METERS,
+                    crown_base,
+                    TRUNK_RADIUS_BY_CLASS.get(classification, 0.25),
+                )
+                trunk_offset = len(cluster_vertices)
+                cluster_vertices.extend(trunk_vertices)
+                cluster_faces.extend(
+                    (a + trunk_offset, b + trunk_offset, c + trunk_offset)
+                    for a, b, c in trunk_faces
+                )
             if not cluster_faces:
                 mesh_failures.append({
                     "cluster": int(label),
@@ -680,8 +778,17 @@ def _vegetation_meshes(
                     max(cluster_points[:, 2]) -
                     min(cluster_points[:, 2])
                 ),
-                "crown_shape": "tapered layered crown",
+                "crown_shape": "porous rounded ellipsoid",
                 "foliage_density": FOLIAGE_DENSITY_BY_CLASS[classification],
+                "trunk_included": crown_height >= (
+                    TRUNK_MIN_CROWN_HEIGHT_BY_CLASS[classification]
+                ),
+                "trunk_base_elevation_m": (
+                    float(np.percentile(cluster_points[:, 2], 5))
+                    - DEFAULT_SHADE_RELEVANT_MIN_HEIGHT_METERS
+                    if crown_height >= TRUNK_MIN_CROWN_HEIGHT_BY_CLASS[classification]
+                    else None
+                ),
             })
 
         if vertices and faces:
@@ -704,12 +811,13 @@ def _vegetation_meshes(
                     }[classification],
                     "cluster_count": len(cluster_records),
                     "clusters": cluster_records,
-                    "canopy_peak_count": peak_count,
-                    "canopy_raster_cell_m": CANOPY_RASTER_CELL_METERS,
-                    "peak_neighborhood_cells": (
-                        CANOPY_PEAK_NEIGHBORHOOD_CELLS
+                    "dbscan_epsilon_m": DBSCAN_EPSILON_BY_CLASS[classification],
+                    "dbscan_min_samples": DBSCAN_MIN_SAMPLES_BY_CLASS[classification],
+                    "crown_model": "LiDAR-sized porous rounded ellipsoid",
+                    "trunk_rule": (
+                        "No trunk for class 3; class 4 trunk when crown "
+                        "height is at least 4 m; class 5 trunk always."
                     ),
-                    "crown_model": "LiDAR-sized porous ellipsoid",
                     "foliage_density": FOLIAGE_DENSITY_BY_CLASS[classification],
                     "crown_percentiles": [5, 95],
                     "minimum_inferred_height_ratio": (
@@ -720,6 +828,10 @@ def _vegetation_meshes(
                     ),
                     "grid_latitude_segments": FOLIAGE_GRID_LATITUDE_SEGMENTS,
                     "grid_longitude_segments": FOLIAGE_GRID_LONGITUDE_SEGMENTS,
+                    "crown_layers": CROWN_LAYER_COUNT_BY_CLASS[classification],
+                    "crown_vertical_scale": (
+                        CROWN_VERTICAL_SCALE_BY_CLASS[classification]
+                    ),
                 },
             })
         class_metadata[str(classification)] = {
@@ -731,8 +843,8 @@ def _vegetation_meshes(
             "points_subsampled": len(xyz) < raw_point_count,
             "cluster_count": len(clusters),
             "meshed_cluster_count": len(cluster_records),
-            "canopy_peak_count": peak_count,
-            "canopy_raster_cell_m": CANOPY_RASTER_CELL_METERS,
+            "dbscan_epsilon_m": DBSCAN_EPSILON_BY_CLASS[classification],
+            "dbscan_min_samples": DBSCAN_MIN_SAMPLES_BY_CLASS[classification],
             "mesh_failures": mesh_failures,
         }
     return class_meshes, class_metadata
@@ -1166,21 +1278,21 @@ def create_canopy_mesh(
             str(code): {
                 "input_point_count": vegetation_point_counts[code],
                 "clustering_sample_point_count": retained_by_class[code],
-                "peak_segmentation_sample_point_count": 0,
-                "peak_segmentation_points_omitted_at_fit": 0,
+                "dbscan_sample_point_count": 0,
+                "dbscan_points_omitted_at_fit": 0,
                 "processing_cell_count": len(cluster_cells),
                 "clustering_point_limit_per_cell": (
                     MAX_CLUSTERING_POINTS_PER_CELL_CLASS
                 ),
-                "peak_segmentation_point_limit_per_cell": (
-                    MAX_PEAK_SEGMENTATION_POINTS_PER_CELL_CLASS
+                "dbscan_point_limit_per_cell": (
+                    MAX_DBSCAN_POINTS_PER_CELL_CLASS
                 ),
                 "points_subsampled": (
                     retained_by_class[code] < vegetation_point_counts[code]
                 ),
                 "cluster_count": 0,
                 "meshed_cluster_count": 0,
-                "canopy_peak_count": 0,
+                "dbscan_cluster_count": 0,
                 "mesh_failures": [],
             }
             for code in (3, 4, 5)
@@ -1225,19 +1337,19 @@ def create_canopy_mesh(
                 )
                 class_xyz = class_xyz[in_buffer]
                 class_details = vegetation_class_metadata[str(code)]
-                if len(class_xyz) > MAX_PEAK_SEGMENTATION_POINTS_PER_CELL_CLASS:
-                    class_details["peak_segmentation_points_omitted_at_fit"] += (
+                if len(class_xyz) > MAX_DBSCAN_POINTS_PER_CELL_CLASS:
+                    class_details["dbscan_points_omitted_at_fit"] += (
                         len(class_xyz) -
-                        MAX_PEAK_SEGMENTATION_POINTS_PER_CELL_CLASS
+                        MAX_DBSCAN_POINTS_PER_CELL_CLASS
                     )
                     class_xyz = class_xyz[
                         vegetation_random_generator.choice(
                             len(class_xyz),
-                            size=MAX_PEAK_SEGMENTATION_POINTS_PER_CELL_CLASS,
+                            size=MAX_DBSCAN_POINTS_PER_CELL_CLASS,
                             replace=False,
                         )
                     ]
-                class_details["peak_segmentation_sample_point_count"] += (
+                class_details["dbscan_sample_point_count"] += (
                     len(class_xyz)
                 )
                 points_by_class[code] = [class_xyz]
@@ -1252,7 +1364,7 @@ def create_canopy_mesh(
                 total_details["meshed_cluster_count"] += (
                     class_details["meshed_cluster_count"]
                 )
-                if total_details["peak_segmentation_points_omitted_at_fit"]:
+                if total_details["dbscan_points_omitted_at_fit"]:
                     total_details["points_subsampled"] = True
                 total_details["mesh_failures"].extend(
                     class_details.get("mesh_failures", [])
@@ -1301,7 +1413,11 @@ def create_canopy_mesh(
                     }[code],
                     "cluster_count": len(accumulator["clusters"]),
                     "clusters": accumulator["clusters"],
-                    "crown_model": "LiDAR-sized porous ellipsoid",
+                    "crown_model": "LiDAR-sized porous rounded ellipsoid",
+                    "trunk_rule": (
+                        "No trunk for class 3; class 4 trunk for crowns at "
+                        "least 4 m tall; class 5 trunk always."
+                    ),
                     "foliage_density": FOLIAGE_DENSITY_BY_CLASS[code],
                     "crown_percentiles": [5, 95],
                     "grid_latitude_segments": FOLIAGE_GRID_LATITUDE_SEGMENTS,
@@ -1315,8 +1431,8 @@ def create_canopy_mesh(
                     "clustering_point_limit_per_cell": (
                         MAX_CLUSTERING_POINTS_PER_CELL_CLASS
                     ),
-                    "peak_segmentation_point_limit_per_cell": (
-                        MAX_PEAK_SEGMENTATION_POINTS_PER_CELL_CLASS
+                    "dbscan_point_limit_per_cell": (
+                        MAX_DBSCAN_POINTS_PER_CELL_CLASS
                     ),
                 },
             })
@@ -1389,25 +1505,40 @@ def create_canopy_mesh(
             ),
             "mesh_method": (
                 "DBSCAN clusters each vegetation classification separately, "
-                "using twice the mean distance to the three nearest neighbors "
-                "measured from streamed LAS chunks as eps and min_samples=5. "
+                "using class-specific 3D eps and min_samples values. "
                 "To bound memory, clustering is spatially partitioned into "
                 f"{VEGETATION_CLUSTER_CELL_SIZE_METERS:g} m cells, with a "
                 f"{VEGETATION_CLUSTER_CELL_BUFFER_METERS:g} m overlap and at "
                 f"most {MAX_CLUSTERING_POINTS_PER_CELL_CLASS:,} sampled points "
                 f"per class per cell and {MAX_DBSCAN_POINTS_PER_CELL_CLASS:,} "
                 "points per class per buffered DBSCAN fit. Each cluster is "
-                "represented by a LiDAR-sized ellipsoidal crown using its "
-                "5th-95th percentile extents. Crown surface patches are "
+                "represented by a LiDAR-sized porous rounded ellipsoid using "
+                "its 5th-95th percentile extents. Class 3 has no trunk; "
+                "class 4 receives a trunk for sufficiently tall crowns; "
+                "class 5 receives a trunk. Crown surface patches are "
                 "deterministically sampled at class-specific foliage "
                 "densities, leaving gaps for partial light transmission. "
                 "The clusters are separate disconnected components grouped "
                 "into one render mesh per vegetation class."
             ),
             "crown_model": {
-                "type": "porous_ellipsoid",
+                "type": "porous_rounded_ellipsoid_with_class_specific_trunks",
                 "extent_percentiles": [5, 95],
                 "foliage_density_by_las_class": FOLIAGE_DENSITY_BY_CLASS,
+                "dbscan_epsilon_by_las_class_m": DBSCAN_EPSILON_BY_CLASS,
+                "dbscan_min_samples_by_las_class": (
+                    DBSCAN_MIN_SAMPLES_BY_CLASS
+                ),
+                "maximum_crown_diameter_by_las_class_m": (
+                    MAX_CROWN_DIAMETER_BY_CLASS
+                ),
+                "crown_layers_by_las_class": CROWN_LAYER_COUNT_BY_CLASS,
+                "crown_vertical_scale_by_las_class": (
+                    CROWN_VERTICAL_SCALE_BY_CLASS
+                ),
+                "trunk_min_crown_height_by_las_class_m": (
+                    TRUNK_MIN_CROWN_HEIGHT_BY_CLASS
+                ),
                 "minimum_radius_m": MIN_CROWN_RADIUS_METERS,
                 "minimum_height_m": MIN_CROWN_HEIGHT_METERS,
                 "surface_grid": [

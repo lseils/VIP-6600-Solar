@@ -37,6 +37,7 @@ else:
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_OUTPUT_DIR = BASE_DIR / "neighborhood_scenes"
 DEFAULT_TERRAIN_MAX_DIMENSION = 250
+MAX_VISUALIZATION_TREE_TRIANGLES = 100_000
 LIDAR_BUILDING_MATCH_DISTANCE_M = 8.0
 MIN_LIDAR_ONLY_BUILDING_HEIGHT_M = 3.0
 MIN_LIDAR_ONLY_BUILDING_POINTS = 20
@@ -52,6 +53,7 @@ LAYER_COLORS = {
     "trees": "#2e7d32",
     "other": "#7e57c2",
 }
+BUILDING_DISPLAY_COLOR = "#d9e2e8"
 
 
 def sanitize_name(value: str) -> str:
@@ -893,25 +895,77 @@ def adjust_buildings_with_lidar(
     }
 
 
+def building_solid_polygon(polygon: Any) -> Any:
+    """Return a hole-free footprint while retaining supported irregular roofs."""
+    from shapely.geometry import MultiPolygon, Polygon
+
+    cleaned = polygon.buffer(0) if not polygon.is_valid else polygon
+    if isinstance(cleaned, MultiPolygon):
+        cleaned = max(cleaned.geoms, key=lambda item: item.area)
+    if not isinstance(cleaned, Polygon) or cleaned.area <= 0:
+        raise ValueError("Building roof region is not a usable polygon.")
+    exterior_only = Polygon(cleaned.exterior)
+    rectangle = exterior_only.minimum_rotated_rectangle
+    if exterior_only.area / rectangle.area >= 0.65:
+        return rectangle
+    return exterior_only
+
+
+def mesh_is_closed(
+    faces: list[tuple[int, int, int]],
+) -> bool:
+    """Return whether every undirected mesh edge has exactly two faces."""
+    from collections import Counter
+
+    edge_counts = Counter(
+        tuple(sorted(edge))
+        for face in faces
+        for edge in (
+            (face[0], face[1]),
+            (face[1], face[2]),
+            (face[2], face[0]),
+        )
+    )
+    return bool(edge_counts) and all(count == 2 for count in edge_counts.values())
+
+
 def extrude_local_polygon(
     polygon: Any,
     base_elevation: float,
     roof_elevation: float,
 ) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
-    """Create a closed stepped-volume mesh for a polygon with optional holes."""
-    try:
-        from shapely import constrained_delaunay_triangles
-    except ImportError:
-        from shapely.ops import triangulate
+    """Create a closed flat-roof volume mesh for a polygon."""
+    solid_polygon = building_solid_polygon(polygon)
+    coordinates = [
+        (float(x), float(y))
+        for x, y in solid_polygon.exterior.coords[:-1]
+    ]
+    if len(coordinates) == 4:
+        vertices = [
+            (x, y, base_elevation) for x, y in coordinates
+        ] + [
+            (x, y, roof_elevation) for x, y in coordinates
+        ]
+        faces = [
+            (0, 1, 2), (0, 2, 3),
+            (4, 6, 5), (4, 7, 6),
+            (0, 4, 5), (0, 5, 1),
+            (1, 5, 6), (1, 6, 2),
+            (2, 6, 7), (2, 7, 3),
+            (3, 7, 4), (3, 4, 0),
+        ]
+        return vertices, faces
 
-        roof_triangles = (
-            triangle for triangle in triangulate(polygon)
-            if polygon.covers(triangle)
-        )
-    else:
-        roof_triangles = constrained_delaunay_triangles(polygon).geoms
+    from shapely.ops import triangulate
 
-    rings = [polygon.exterior, *polygon.interiors]
+    roof_triangles = [
+        triangle for triangle in triangulate(solid_polygon)
+        if triangle.difference(solid_polygon).area <= 1e-8
+    ]
+    if not roof_triangles:
+        raise ValueError("Could not triangulate the building roof cap.")
+
+    rings = [solid_polygon.exterior, *solid_polygon.interiors]
     boundary_coordinates = [
         [(float(x), float(y)) for x, y in ring.coords[:-1]]
         for ring in rings
@@ -1240,15 +1294,35 @@ def building_meshes(
             ) in enumerate(
                 cleaned_components
             ):
+                supporting_elevation = ground_elevation
                 height = roof_elevation - ground_elevation
-                vertices, faces = extrude_local_polygon(
-                    part,
-                    ground_elevation - origin_elevation,
-                    roof_elevation - origin_elevation,
-                )
+                solid_polygon = building_solid_polygon(part)
+                solid_fallback = False
+                try:
+                    vertices, faces = extrude_local_polygon(
+                        solid_polygon,
+                        ground_elevation - origin_elevation,
+                        roof_elevation - origin_elevation,
+                    )
+                except (KeyError, ValueError):
+                    solid_polygon = solid_polygon.minimum_rotated_rectangle
+                    vertices, faces = extrude_local_polygon(
+                        solid_polygon,
+                        ground_elevation - origin_elevation,
+                        roof_elevation - origin_elevation,
+                    )
+                    solid_fallback = True
+                if not mesh_is_closed(faces):
+                    solid_polygon = solid_polygon.minimum_rotated_rectangle
+                    vertices, faces = extrude_local_polygon(
+                        solid_polygon,
+                        ground_elevation - origin_elevation,
+                        roof_elevation - origin_elevation,
+                    )
+                    solid_fallback = True
                 wireframe = building_wireframe(
-                    part,
-                    ground_elevation - origin_elevation,
+                    solid_polygon,
+                    supporting_elevation - origin_elevation,
                     roof_elevation - origin_elevation,
                 )
                 name = sanitize_name(
@@ -1261,6 +1335,16 @@ def building_meshes(
                     ),
                     "lidar_region_point_count": region.get("point_count"),
                     "footprint_area_m2": part.area,
+                    "solid_footprint_area_m2": solid_polygon.area,
+                    "solid_footprint_method": (
+                        "minimum rotated rectangle fallback"
+                        if solid_fallback
+                        else (
+                            "minimum rotated rectangle"
+                            if len(solid_polygon.exterior.coords) == 5
+                            else "cleaned irregular exterior"
+                        )
+                    ),
                 }
                 mesh_metadata = {
                     "building_feature_id": building["osm_id"],
@@ -1439,6 +1523,27 @@ def write_obj(meshes: list[dict[str, Any]], output_path: Path) -> None:
             vertex_offset += len(mesh["vertices"])
 
 
+def decimate_mesh_for_visualization(
+    vertices: list[tuple[float, float, float]],
+    faces: list[tuple[int, int, int]],
+    maximum_triangles: int,
+) -> tuple[list[tuple[float, float, float]], list[tuple[int, int, int]]]:
+    """Reduce a render-only mesh for the browser visualization."""
+    if len(faces) <= maximum_triangles:
+        return vertices, faces
+    stride = math.ceil(len(faces) / maximum_triangles)
+    selected_faces = faces[::stride][:maximum_triangles]
+    used_indices = sorted({index for face in selected_faces for index in face})
+    remap = {old: new for new, old in enumerate(used_indices)}
+    return (
+        [vertices[index] for index in used_indices],
+        [
+            (remap[a], remap[b], remap[c])
+            for a, b, c in selected_faces
+        ],
+    )
+
+
 def make_scene_figure(
     meshes: list[dict[str, Any]],
     crop: dict[str, Any],
@@ -1461,6 +1566,12 @@ def make_scene_figure(
         vertices = mesh["vertices"]
         faces = mesh["faces"]
         layer = mesh["layer"]
+        if layer == "trees":
+            vertices, faces = decimate_mesh_for_visualization(
+                vertices,
+                faces,
+                MAX_VISUALIZATION_TREE_TRIANGLES,
+            )
         if layer == "terrain" and len(faces) > maximum_terrain_triangles:
             stride = math.ceil(
                 math.sqrt(len(faces) / maximum_terrain_triangles)
@@ -1569,21 +1680,37 @@ def make_scene_figure(
                 j=[face[1] for face in faces],
                 k=[face[2] for face in faces],
                 name=name,
-                color="#ff7043" if metadata.get("is_target") else mesh["color"],
+                color=(
+                    "#ff7043"
+                    if metadata.get("is_target")
+                    else BUILDING_DISPLAY_COLOR
+                    if layer == "buildings"
+                    else mesh["color"]
+                ),
                 opacity=(
                     1.0 if layer == "buildings"
                     else 0.78 if layer == "balcony_segmentation"
                     else 0.95
                 ),
-                flatshading=True,
+                flatshading=False if layer == "buildings" else True,
                 lighting={
+                    "ambient": 1.0,
+                    "diffuse": 0.0,
+                    "specular": 0.0,
+                    "roughness": 1.0,
+                    "fresnel": 0.0,
+                } if layer == "buildings" else {
                     "ambient": 0.45,
                     "diffuse": 0.8,
                     "specular": 0.15,
                     "roughness": 0.9,
                     "fresnel": 0.05,
                 },
-                lightposition={"x": 1000, "y": 1200, "z": 2000},
+                lightposition=(
+                    {"x": 0, "y": 0, "z": 1}
+                    if layer == "buildings"
+                    else {"x": 1000, "y": 1200, "z": 2000}
+                ),
                 showlegend=showlegend,
                 hovertext="<br>".join(map(str, hover_lines)),
                 hoverinfo="text",
@@ -1596,7 +1723,7 @@ def make_scene_figure(
             z=building_edge_z,
             mode="lines",
             name="Building edges",
-            line={"color": "#37474f", "width": 2},
+            line={"color": "#263238", "width": 4},
             showlegend=True,
             hoverinfo="skip",
         ))
@@ -2257,9 +2384,16 @@ def main() -> int:
                     "merge_roof_levels_within_m": (
                         ROOF_LEVEL_MERGE_TOLERANCE_M
                     ),
-                    "roof_triangulation": (
-                        "Constrained Delaunay where available, with "
-                        "polygon-filtered Delaunay fallback."
+                    "solid_footprint": (
+                        "Interior holes are removed from roof bands. "
+                        "Rectangular bands use minimum rotated rectangles; "
+                        "supported irregular exteriors are retained."
+                    ),
+                    "roof_surfaces": (
+                        "Each roof-height band is extruded as a closed solid. "
+                        "Flat rectangles use twelve explicit triangles; "
+                        "irregular caps use constrained triangulation and "
+                        "fall back to a rectangle if mesh closure fails."
                     ),
                 },
                 "lidar_adjustment": building_lidar_adjustment,
